@@ -17,7 +17,7 @@ from os import sep
 
 
 class RedisFile(object):
-    def __init__(self, connection_string, html_report_file, xml_report_file):
+    def __init__(self, connection_string, html_report_file=None, xml_report_file=None):
         self.client = redis.Redis.from_url(connection_string)
         if html_report_file:
             self.set_key(html_report_file)

@@ -10,7 +10,8 @@ ADD setup.py /tmp/setup.py
 ADD requirements.txt /tmp/requirements.txt
 COPY control_tower /tmp/control_tower
 
-RUN cd /tmp && python setup.py install && rm -rf /tmp/control_tower /tmp/requirements.txt /tmp/setup.py
+RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
+    rm -rf /tmp/control_tower /tmp/requirements.txt /tmp/setup.py
 
 
 ENTRYPOINT ["run"]

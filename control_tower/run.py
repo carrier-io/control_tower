@@ -14,9 +14,10 @@
 
 import argparse
 from json import loads
-from os import environ
+from os import environ, path
 from celery import Celery, group
 from time import sleep
+from control_tower.drivers.redis_file import RedisFile
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
@@ -75,10 +76,14 @@ def main():
     print(f"Available Workers: {available}")
     if workers < args.concurrency:
         return f"We are unable to process your request due to limited resources. We have {workers} available"
+    job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
+    job_id_number = int(sum(job_id_number)/len(job_id_number))
+    callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
     tasks = [app.signature('tasks.execute',
                            kwargs={'job_type': args.job_type,
                                    'container': args.container,
                                    'execution_params': args.execution_params,
+                                   'redis_connection': callback_connection,
                                    'job_name': args.job_name}) for _ in range(args.concurrency)]
     task_group = group(tasks, app=app)
     result = task_group.apply_async()
@@ -94,6 +99,9 @@ def main():
         print("We are failed badly")
     for each in result.get():
         print(each)
+    redis_ = RedisFile(callback_connection)
+    for document in redis_.client.scan_iter():
+        redis_.get_key(path.join('/tmp/reports', document))
 
 
 if __name__ == "__main__":
