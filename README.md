@@ -1,4 +1,6 @@
 # Control Tower
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower?ref=badge_shield)
+
 _Executor for distributing jobs. Suppose to be used in CI jobs_
 
 ### Configuration
@@ -44,3 +46,6 @@ docker run -t --rm \
              "environment":"stag","test_type": "basic"} \
        -t dast -n supertestjob -q 1
 ```
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower?ref=badge_large)
