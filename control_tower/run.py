@@ -64,14 +64,9 @@ def main():
                  broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
                  backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
                  include=['celery'])
-    workers = 0
-    available = 0
-    stats = app.control.inspect().stats()
-    for interceptor in stats.values():
-        print(interceptor)
-        workers += interceptor['pool']['writes']['inqueues']['total']
-        available += interceptor['pool']['writes']['inqueues']['total'] \
-                     - interceptor['pool']['writes']['inqueues']['active']
+    workers = sum(value['pool']['max-concurrency'] for key, value in app.control.inspect().stats().items())
+    active = sum(len(value) for key, value in app.control.inspect().active().items())
+    available = workers - active
     print(f"Total Workers: {workers}")
     print(f"Available Workers: {available}")
     if workers < args.concurrency:
@@ -79,12 +74,19 @@ def main():
     job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
     job_id_number = int(sum(job_id_number)/len(job_id_number))
     callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
-    tasks = [app.signature('tasks.execute',
-                           kwargs={'job_type': args.job_type,
-                                   'container': args.container,
-                                   'execution_params': args.execution_params,
-                                   'redis_connection': callback_connection,
-                                   'job_name': args.job_name}) for _ in range(args.concurrency)]
+    tasks = []
+    for _ in range(args.concurrency):
+        exec_params = args.execution_params
+        if args.execution_params.get('jmeter_execution_string'):
+            exec_params['jmeter_execution_string'] = f" -Jlg.id ${args.job_name}_${_}"
+        tasks.append(app.signature('tasks.execute',
+                                   kwargs={'job_type': args.job_type,
+                                           'container': args.container,
+                                           'execution_params': args.execution_params,
+                                           'redis_connection': callback_connection,
+                                           'job_name': args.job_name}
+                                   )
+                     )
     task_group = group(tasks, app=app)
     result = task_group.apply_async()
     print("Starting execution")
