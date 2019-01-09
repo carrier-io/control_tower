@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import argparse
+from copy import deepcopy
 from json import loads
 from os import environ, path
 from celery import Celery, group
@@ -76,9 +77,9 @@ def main():
     callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
     tasks = []
     for _ in range(args.concurrency):
-        exec_params = args.execution_params
+        exec_params = deepcopy(args.execution_params)
         if args.execution_params.get('jmeter_execution_string'):
-            exec_params['jmeter_execution_string'] += f" -Jlg.id {args.job_name}_{_}"
+            exec_params['jmeter_execution_string'] += f" -Jlg.id={args.job_name}_{_}"
         tasks.append(app.signature('tasks.execute',
                                    kwargs={'job_type': args.job_type,
                                            'container': args.container,
