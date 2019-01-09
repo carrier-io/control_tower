@@ -78,15 +78,13 @@ def main():
     for _ in range(args.concurrency):
         exec_params = args.execution_params
         if args.execution_params.get('jmeter_execution_string'):
-            exec_params['jmeter_execution_string'] = f" -Jlg.id ${args.job_name}_${_}"
+            exec_params['jmeter_execution_string'] += f" -Jlg.id {args.job_name}_{_}"
         tasks.append(app.signature('tasks.execute',
                                    kwargs={'job_type': args.job_type,
                                            'container': args.container,
                                            'execution_params': args.execution_params,
                                            'redis_connection': callback_connection,
-                                           'job_name': args.job_name}
-                                   )
-                     )
+                                           'job_name': args.job_name}))
     task_group = group(tasks, app=app)
     result = task_group.apply_async()
     print("Starting execution")
