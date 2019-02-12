@@ -13,6 +13,8 @@
 #  limitations under the License.
 
 import argparse
+import signal
+
 from copy import deepcopy
 from json import loads
 from os import environ, path
@@ -59,6 +61,17 @@ def arg_parse():
     return parser.parse_args()
 
 
+class GracefulKiller(object):
+    kill_now = False
+
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, signum, frame):
+        self.kill_now = True
+
+
 def main():
     args = arg_parse()
     app = Celery('CarrierExecutor',
@@ -88,10 +101,15 @@ def main():
                                            'job_name': args.job_name}))
     task_group = group(tasks, app=app)
     result = task_group.apply_async()
+    killer = GracefulKiller()
     print("Starting execution")
     sleep(30)
     while not result.ready():
-        sleep(30)
+        for _ in range(30):
+            if killer.kill_now:
+                print("Termination Triggered")
+                break
+            sleep(1)
         print("Still processing ... ")
     if result.successful():
         # TODO: add pulling results from redis
