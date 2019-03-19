@@ -1,10 +1,9 @@
-FROM python:3.6-alpine
+FROM python:3.7-alpine
 
 RUN apk update && apk add --no-cache git bash
 
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
-RUN pip install git+https://github.com/celery/celery.git
 
 ADD setup.py /tmp/setup.py
 ADD requirements.txt /tmp/requirements.txt
