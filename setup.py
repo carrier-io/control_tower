@@ -31,7 +31,10 @@ setup(
     include_package_data=True,
     entry_points={
         'console_scripts': [
-            'run=control_tower.run:main'
+            'run=control_tower.run:start_and_track',
+            'start_job=control_tower.run:start_job',
+            'trace_job=control_tower.run:track_job',
+            'kill_job=control_tower.run:kill_job'
         ]
     },
 )
