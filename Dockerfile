@@ -14,6 +14,7 @@ RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
 
 ADD run.sh /bin/run.sh
 RUN chmod +x /bin/run.sh
+RUN pip install git+https://github.com/celery/celery.git
 
 SHELL ["/bin/bash", "-c"]
 
