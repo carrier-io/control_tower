@@ -20,6 +20,7 @@ from os import environ, path
 from celery import Celery, group
 from celery.result import GroupResult
 from celery.contrib.abortable import AbortableAsyncResult
+from celery.task.control import inspect
 from time import sleep
 from control_tower.drivers.redis_file import RedisFile
 
@@ -118,7 +119,7 @@ def start_job(args=None):
     with open("_taskid", "w") as f:
         f.write(group_id.id)
     print(f"Group ID: {group_id.id}")
-    return group_id.id
+    exit(0)
 
 
 def track_job(args=None, group_id=None):
@@ -144,7 +145,7 @@ def track_job(args=None, group_id=None):
     redis_ = RedisFile(callback_connection)
     for document in redis_.client.scan_iter():
         redis_.get_key(path.join('/tmp/reports', document))
-    return "Done"
+    exit(0)
 
 
 def start_and_track():
@@ -163,16 +164,38 @@ def kill_job(args=None, group_id=None):
     print(group_id)
     app = connect_to_celery(None)
     result = GroupResult.restore(group_id, app=app)
+    tasks_id = []
     if not result.ready():
         abortable_result = []
         for task in result.children:
+            tasks_id.append(tasks_id)
             abortable_id = AbortableAsyncResult(id=task.id, parent=result.id, app=app)
             abortable_id.abort()
             abortable_result.append(abortable_id)
-        while not all(res.result for res in abortable_result):
-            sleep(5)
-            print("Aborting distributed tasks ... ")
-        print("Tasks aborted ...")
+        if abortable_result:
+            while not all(res.result for res in abortable_result):
+                sleep(5)
+                print("Aborting distributed tasks ... ")
+        print("Group aborted ...")
+        print("Verifying that tasks aborted as well ... ")
+        # This process is to handle a case when parent is canceled, but child have not
+        i = inspect()
+        tasks_list = []
+        for tasks in [i.active(), i.scheduled(), i.reserved()]:
+            for node in tasks:
+                if tasks[node]:
+                    tasks_list.append(task['id'] for task in tasks[node])
+        abortable_result = []
+        for task_id in tasks_id:
+            if task_id in tasks_list:
+                abortable_id = AbortableAsyncResult(id=task_id, app=app)
+                abortable_id.abort()
+                abortable_result.append(abortable_id)
+        if abortable_result:
+            while not all(res.result for res in abortable_result):
+                sleep(5)
+                print("Aborting distributed tasks ... ")
+    exit(0)
 
 
 if __name__ == "__main__":
