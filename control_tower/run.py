@@ -103,7 +103,8 @@ def start_job(args=None):
     tasks = []
     for _ in range(args.concurrency):
         exec_params = deepcopy(args.execution_params)
-        if exec_params.get('jmeter_execution_string'): # TODO: should be by pefmeter jobtype
+        if exec_params.get('jmeter_execution_string'):  # TODO: should be by pefmeter jobtype
+            print("WARNING: you are using obsolete functionality")
             exec_params['jmeter_execution_string'] += f" -Jlg.id={args.job_name}_{_}"
         tasks.append(app.signature('tasks.execute',
                                    kwargs={'job_type': args.job_type,
@@ -113,10 +114,10 @@ def start_job(args=None):
                                            'job_name': args.job_name}))
     task_group = group(tasks, app=app)
     group_id = task_group.apply_async()
-    print("Starting execution")
     group_id.save()
     with open("_taskid", "w") as f:
         f.write(group_id.id)
+    print(f"Group ID: {group_id.id}")
     return group_id.id
 
 
@@ -143,6 +144,7 @@ def track_job(args=None, group_id=None):
     redis_ = RedisFile(callback_connection)
     for document in redis_.client.scan_iter():
         redis_.get_key(path.join('/tmp/reports', document))
+    return "Done"
 
 
 def start_and_track():
@@ -176,8 +178,8 @@ def kill_job(args=None, group_id=None):
 if __name__ == "__main__":
     from control_tower.config_mock import Config
     config = Config()
-    group_id = start_job(config)
-    config.groupid = group_id
-    sleep(10)
+    # group_id = start_job(config)
+    config.groupid = '126ea08e-9bc5-432b-8118-fae0181cebbf'
+    # sleep(10)
     kill_job(config)
 

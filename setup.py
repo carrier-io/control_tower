@@ -29,6 +29,7 @@ setup(
     packages=find_packages(),
     install_requires=required,
     include_package_data=True,
+    zip_safe=False,
     entry_points={
         'console_scripts': [
             'run=control_tower.run:start_and_track',
