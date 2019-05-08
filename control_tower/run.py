@@ -121,12 +121,12 @@ def start_job(args=None):
     group_id.save()
     with open("_taskid", "w") as f:
         f.write(group_id.id)
+    print(f"Group ID: {group_id.id}")
     return group_id.id
 
 
 def start_job_exec(args=None):
     group_id = start_job(args)
-    print(f"Group ID: {group_id}")
     exit(0)
 
 
