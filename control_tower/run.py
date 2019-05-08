@@ -118,9 +118,14 @@ def start_job(args=None):
     task_group = group(tasks, app=app)
     group_id = task_group.apply_async()
     group_id.save()
+    return group_id.id
+
+
+def start_job_exec(args=None):
+    group_id = start_job(args)
     with open("_taskid", "w") as f:
-        f.write(group_id.id)
-    print(f"Group ID: {group_id.id}")
+        f.write(group_id)
+    print(f"Group ID: {group_id}")
     exit(0)
 
 
@@ -150,6 +155,11 @@ def track_job(args=None, group_id=None):
             redis_.get_key(path.join('/tmp/reports', document))
     except ResponseError:
         print("No failed were transferred back ...")
+    return "Done"
+
+
+def track_job_exec(args=None):
+    track_job(args)
     exit(0)
 
 
@@ -157,7 +167,7 @@ def start_and_track():
     group_id = start_job()
     print("Job started, waiting for containers to settle ... ")
     sleep(60)
-    track_job(group_id=group_id)
+    return track_job(group_id=group_id)
 
 
 def kill_job(args=None, group_id=None):
@@ -206,7 +216,7 @@ def kill_job(args=None, group_id=None):
 
 
 if __name__ == "__main__":
-    from control_tower.config_mock import Config
+    # from control_tower.config_mock import Config
     # config = Config()
     # group_id = start_job(config)
     # print(group_id)
