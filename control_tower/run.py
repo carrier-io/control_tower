@@ -65,7 +65,8 @@ def arg_parse():
                         help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
     parser.add_argument('-q', '--concurrency', type=int, default=1,
                         help="Number of parallel workers to run the job")
-    return parser.parse_known_args()
+    args, _ = parser.parse_known_args()
+    return args
 
 
 def parse_id():
@@ -75,8 +76,8 @@ def parse_id():
                                                             "e.g. getcarrier/dusty:latest")
     parser.add_argument('-t', '--job_type', type=str, help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
     parser.add_argument('-n', '--job_name', type=str, help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
-
-    return parser.parse_known_args()
+    args, _ = parser.parse_known_args()
+    return args
 
 
 def connect_to_celery(concurrency):
