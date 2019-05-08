@@ -120,7 +120,7 @@ def start_job(args=None):
     group_id = task_group.apply_async()
     group_id.save()
     with open("_taskid", "w") as f:
-        f.write(group_id)
+        f.write(group_id.id)
     return group_id.id
 
 
