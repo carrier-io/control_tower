@@ -1,7 +1,9 @@
 
 
 class Config(object):
-    def __init__(self, container="busybox:latest", execution_params={"cmd": "ping 8.8.8.8"},
+    def __init__(self, container="getcarrier/perfmeter:latest",
+                 execution_params={"cmd": "-n -t /mnt/jmeter/FloodIO.jmx "
+                                          "-JVUSERS=10 -JDURATION=120 -JRAMP_UP=1 -Jtest_name=test"},
                  job_type="free_style", job_name="test", concurrency=1, groupid=None):
         self.container = container
         self.execution_params = execution_params

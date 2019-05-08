@@ -22,7 +22,9 @@ from celery.result import GroupResult
 from celery.contrib.abortable import AbortableAsyncResult
 from celery.task.control import inspect
 from time import sleep
+from redis.exceptions import ResponseError
 from control_tower.drivers.redis_file import RedisFile
+
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
@@ -141,15 +143,20 @@ def track_job(args=None, group_id=None):
         print(each)
     job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
     job_id_number = int(sum(job_id_number) / len(job_id_number))
-    callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
-    redis_ = RedisFile(callback_connection)
-    for document in redis_.client.scan_iter():
-        redis_.get_key(path.join('/tmp/reports', document))
+    try:
+        callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
+        redis_ = RedisFile(callback_connection)
+        for document in redis_.client.scan_iter():
+            redis_.get_key(path.join('/tmp/reports', document))
+    except ResponseError:
+        print("No failed were transferred back ...")
     exit(0)
 
 
 def start_and_track():
     group_id = start_job()
+    print("Job started, waiting for containers to settle ... ")
+    sleep(60)
     track_job(group_id=group_id)
 
 
@@ -200,9 +207,11 @@ def kill_job(args=None, group_id=None):
 
 if __name__ == "__main__":
     from control_tower.config_mock import Config
-    config = Config()
+    # config = Config()
     # group_id = start_job(config)
-    config.groupid = '126ea08e-9bc5-432b-8118-fae0181cebbf'
-    # sleep(10)
-    kill_job(config)
+    # print(group_id)
+    # track_job(group_id=group_id)
+    # kill_job(config)
+    # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
+    pass
 
