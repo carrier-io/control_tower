@@ -119,13 +119,13 @@ def start_job(args=None):
     task_group = group(tasks, app=app)
     group_id = task_group.apply_async()
     group_id.save()
+    with open("_taskid", "w") as f:
+        f.write(group_id)
     return group_id.id
 
 
 def start_job_exec(args=None):
     group_id = start_job(args)
-    with open("_taskid", "w") as f:
-        f.write(group_id)
     print(f"Group ID: {group_id}")
     exit(0)
 
@@ -155,7 +155,7 @@ def track_job(args=None, group_id=None):
         for document in redis_.client.scan_iter():
             redis_.get_key(path.join('/tmp/reports', document))
     except ResponseError:
-        print("No failed were transferred back ...")
+        print("No files were transferred back ...")
     return "Done"
 
 
@@ -168,7 +168,8 @@ def start_and_track():
     group_id = start_job()
     print("Job started, waiting for containers to settle ... ")
     sleep(60)
-    return track_job(group_id=group_id)
+    track_job(group_id=group_id)
+    exit(0)
 
 
 def kill_job(args=None, group_id=None):
