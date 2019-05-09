@@ -31,7 +31,7 @@ REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
 REDIS_HOST = environ.get('REDIS_HOST', 'localhost')
 REDIS_PORT = environ.get('REDIS_PORT', '6379')
 REDIS_DB = environ.get('REDIS_DB', 1)
-
+app = None
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -81,10 +81,12 @@ def parse_id():
 
 
 def connect_to_celery(concurrency):
-    app = Celery('CarrierExecutor',
-                 broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
-                 backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
-                 include=['celery'])
+    global app
+    if not app:
+        app = Celery('CarrierExecutor',
+                     broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
+                     backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
+                     include=['celery'])
     print(f"Celery Status: {dumps(app.control.inspect().stats(), indent=2)}")
     if concurrency:
         workers = sum(value['pool']['max-concurrency'] for key, value in app.control.inspect().stats().items())
@@ -170,8 +172,8 @@ def track_job_exec(args=None):
     exit(0)
 
 
-def start_and_track():
-    group_id = start_job()
+def start_and_track(config=None):
+    group_id = start_job(config)
     print("Job started, waiting for containers to settle ... ")
     sleep(60)
     track_job(group_id=group_id)
@@ -224,8 +226,9 @@ def kill_job(args=None, group_id=None):
 
 
 if __name__ == "__main__":
-    # from control_tower.config_mock import Config
-    # config = Config()
+    from control_tower.config_mock import Config
+    config = Config()
+    start_and_track(config)
     # group_id = start_job(config)
     # print(group_id)
     # track_job(group_id=group_id)
