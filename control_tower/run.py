@@ -15,7 +15,7 @@
 import argparse
 
 from copy import deepcopy
-from json import loads
+from json import loads, dumps
 from os import environ, path
 from celery import Celery, group
 from celery.result import GroupResult
@@ -32,6 +32,7 @@ REDIS_HOST = environ.get('REDIS_HOST', 'localhost')
 REDIS_PORT = environ.get('REDIS_PORT', '6379')
 REDIS_DB = environ.get('REDIS_DB', 1)
 
+app = None
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -81,10 +82,13 @@ def parse_id():
 
 
 def connect_to_celery(concurrency):
-    app = Celery('CarrierExecutor',
-                 broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
-                 backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
-                 include=['celery'])
+    global app
+    if not app:
+        app = Celery('CarrierExecutor',
+                     broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
+                     backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
+                     include=['celery'])
+    print(f"Celery Status: {dumps(app.control.inspect().stats(), indent=2)}")
     if concurrency:
         workers = sum(value['pool']['max-concurrency'] for key, value in app.control.inspect().stats().items())
         active = sum(len(value) for key, value in app.control.inspect().active().items())
@@ -130,7 +134,7 @@ def start_job_exec(args=None):
     exit(0)
 
 
-def track_job(args=None, group_id=None):
+def track_job(args=None, group_id=None, retry=True):
     if not args:
         args = parse_id()
     if not group_id:
@@ -145,6 +149,13 @@ def track_job(args=None, group_id=None):
         print("We are done successfully")
     else:
         print("We are failed badly")
+        if retry:
+            print(f"Retry for GroupID: {group_id}")
+            global app
+            app = None
+            return track_job(group_id=group_id, retry=False)
+        else:
+            return "Failed"
     for each in result.get():
         print(each)
     job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
