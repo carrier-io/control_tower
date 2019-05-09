@@ -148,8 +148,6 @@ def track_job(args=None, group_id=None, retry=True):
         print("We are failed badly")
         if retry:
             print(f"Retry for GroupID: {group_id}")
-            global app
-            app = None
             return track_job(group_id=group_id, retry=False)
         else:
             return "Failed"
