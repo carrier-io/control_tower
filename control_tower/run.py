@@ -33,6 +33,7 @@ REDIS_PORT = environ.get('REDIS_PORT', '6379')
 REDIS_DB = environ.get('REDIS_DB', 1)
 app = None
 
+
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
@@ -51,19 +52,19 @@ def str2json(v):
 
 def arg_parse():
     parser = argparse.ArgumentParser(description='Carrier Command Center')
-    parser.add_argument('-c', '--container', type=str,
+    parser.add_argument('-c', '--container', action="append", type=str,
                         help="Name of container to run the job e.g. getcarrier/dusty:latest")
-    parser.add_argument('-e', '--execution_params', type=str2json,
+    parser.add_argument('-e', '--execution_params', action="append", type=str2json,
                         help="Execution params for jobs e.g. \n"
                              "{\n\t'host': 'localhost', \n\t'port':'443', \n\t'protocol':'https'"
                              ", \n\t'project_name':'MY_PET', \n\t'environment':'stag', \n\t"
                              "'test_type': 'basic'"
                              "\n} will be valid for dast container")
-    parser.add_argument('-t', '--job_type', type=str,
+    parser.add_argument('-t', '--job_type', action="append", type=str,
                         help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
-    parser.add_argument('-n', '--job_name', type=str,
+    parser.add_argument('-n', '--job_name', type=str, default='',
                         help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
-    parser.add_argument('-q', '--concurrency', type=int, default=1,
+    parser.add_argument('-q', '--concurrency', action="append", type=int,
                         help="Number of parallel workers to run the job")
     args, _ = parser.parse_known_args()
     return args
@@ -103,22 +104,24 @@ def connect_to_celery(concurrency):
 def start_job(args=None):
     if not args:
         args = arg_parse()
-    app = connect_to_celery(args.concurrency)
-    job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
+    print(args)
+    concurrency = sum(args.concurrency)
+    app = connect_to_celery(concurrency)
+    job_type = "".join(args.container)
+    job_type += "".join(args.job_type)
+    job_id_number = [ord(char) for char in f'{job_type}{args.job_name}']
     job_id_number = int(sum(job_id_number)/len(job_id_number))
     callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
     tasks = []
-    for _ in range(args.concurrency):
-        exec_params = deepcopy(args.execution_params)
-        if exec_params.get('jmeter_execution_string'):  # TODO: should be by pefmeter jobtype
-            print("WARNING: you are using obsolete functionality")
-            exec_params['jmeter_execution_string'] += f" -Jlg.id={args.job_name}_{_}"
-        tasks.append(app.signature('tasks.execute',
-                                   kwargs={'job_type': args.job_type,
-                                           'container': args.container,
-                                           'execution_params': exec_params,
-                                           'redis_connection': callback_connection,
-                                           'job_name': args.job_name}))
+    for i in range(len(args.container)):
+        exec_params = deepcopy(args.execution_params[i])
+        for _ in range(int(args.concurrency[i])):
+            tasks.append(app.signature('tasks.execute',
+                                       kwargs={'job_type': str(args.job_type[i]),
+                                               'container': args.container[i],
+                                               'execution_params': exec_params,
+                                               'redis_connection': callback_connection,
+                                               'job_name': args.job_name}))
     task_group = group(tasks, app=app)
     group_id = task_group.apply_async()
     group_id.save()
@@ -172,8 +175,8 @@ def track_job_exec(args=None):
     exit(0)
 
 
-def start_and_track(config=None):
-    group_id = start_job(config)
+def start_and_track(args=None):
+    group_id = start_job(args)
     print("Job started, waiting for containers to settle ... ")
     sleep(60)
     track_job(group_id=group_id)
@@ -226,9 +229,8 @@ def kill_job(args=None, group_id=None):
 
 
 if __name__ == "__main__":
-    from control_tower.config_mock import Config
-    config = Config()
-    start_and_track(config)
+    from control_tower.config_mock import BulkConfig
+    start_and_track(args=BulkConfig())
     # group_id = start_job(config)
     # print(group_id)
     # track_job(group_id=group_id)
