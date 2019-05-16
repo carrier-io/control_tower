@@ -66,6 +66,8 @@ def arg_parse():
                         help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
     parser.add_argument('-q', '--concurrency', action="append", type=int,
                         help="Number of parallel workers to run the job")
+    parser.add_argument('-r', '--channel', action="append", default=[], type=int,
+                        help="Number of parallel workers to run the job")
     args, _ = parser.parse_known_args()
     return args
 
@@ -81,13 +83,15 @@ def parse_id():
     return args
 
 
-def connect_to_celery(concurrency):
-    global app
-    if not app:
-        app = Celery('CarrierExecutor',
-                     broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
-                     backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
-                     include=['celery'])
+def connect_to_celery(concurrency, redis_db=None):
+    #global app
+    if not (redis_db and isinstance(redis_db, int)):
+        redis_db = REDIS_DB
+    #if not app or redis_db not in app:
+    app = Celery('CarrierExecutor',
+                 broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
+                 backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
+                 include=['celery'])
     print(f"Celery Status: {dumps(app.control.inspect().stats(), indent=2)}")
     if concurrency:
         workers = sum(value['pool']['max-concurrency'] for key, value in app.control.inspect().stats().items())
@@ -104,36 +108,56 @@ def connect_to_celery(concurrency):
 def start_job(args=None):
     if not args:
         args = arg_parse()
-    print(args)
-    concurrency = sum(args.concurrency)
-    app = connect_to_celery(concurrency)
+    concurrency_cluster = {}
+    channels = args.channel
+    if not channels:
+        for _ in args.container:
+            channels.append(REDIS_DB)
+    for index in range(len(channels)):
+        if str(channels[index]) not in concurrency_cluster:
+            concurrency_cluster[str(channels[index])] = 0
+        concurrency_cluster[str(channels[index])] += args.concurrency[index]
+    celery_connection_cluster = {}
+    for channel in channels:
+        if str(channel) not in celery_connection_cluster:
+            celery_connection_cluster[str(channel)] = {}
+        celery_connection_cluster[str(channel)]['app'] = connect_to_celery(concurrency_cluster[str(channel)], channel)
     job_type = "".join(args.container)
     job_type += "".join(args.job_type)
     job_id_number = [ord(char) for char in f'{job_type}{args.job_name}']
     job_id_number = int(sum(job_id_number)/len(job_id_number))
     callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
-    tasks = []
     for i in range(len(args.container)):
+        if 'tasks' not in celery_connection_cluster[str(channels[i])]:
+            celery_connection_cluster[str(channels[i])]['tasks'] = []
         exec_params = deepcopy(args.execution_params[i])
         for _ in range(int(args.concurrency[i])):
-            tasks.append(app.signature('tasks.execute',
-                                       kwargs={'job_type': str(args.job_type[i]),
-                                               'container': args.container[i],
-                                               'execution_params': exec_params,
-                                               'redis_connection': callback_connection,
-                                               'job_name': args.job_name}))
-    task_group = group(tasks, app=app)
-    group_id = task_group.apply_async()
-    group_id.save()
-    with open("_taskid", "w") as f:
-        f.write(group_id.id)
-    print(f"Group ID: {group_id.id}")
-    return group_id.id
+            task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
+                           'execution_params': exec_params, 'redis_connection': callback_connection,
+                           'job_name': args.job_name}
+            celery_connection_cluster[str(channels[i])]['tasks'].append(
+                celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
+    group_ids = {}
+    for each in celery_connection_cluster:
+        task_group = group(celery_connection_cluster[each]['tasks'], app=celery_connection_cluster[each]['app'])
+        group_id = task_group.apply_async()
+        group_id.save()
+        group_ids[each] = {"group_id": group_id.id}
+    print(f"Group IDs: {dumps(group_ids)}")
+    with open('_taskid', 'w') as f:
+        f.write(dumps(group_ids))
+    return group_ids
 
 
 def start_job_exec(args=None):
-    group_id = start_job(args)
+    start_job(args)
     exit(0)
+
+
+def check_ready(result):
+    if result and not result.ready():
+        return False
+    return True
 
 
 def track_job(args=None, group_id=None, retry=True):
@@ -141,12 +165,13 @@ def track_job(args=None, group_id=None, retry=True):
         args = parse_id()
     if not group_id:
         group_id = args.groupid
-    app = connect_to_celery(0)
-    result = GroupResult.restore(group_id, app=app)
-    while not result.ready():
+    for id in group_id:
+        group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
+        group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
+    while not all(check_ready(group_id[id]['result']) for id in group_id):
         sleep(30)
         print("Still processing ... ")
-    if result.successful():
+    if all(check_ready(group_id[id]['result']) for id in group_id):
         # TODO: add pulling results from redis
         print("We are done successfully")
     else:
@@ -156,17 +181,20 @@ def track_job(args=None, group_id=None, retry=True):
             return track_job(group_id=group_id, retry=False)
         else:
             return "Failed"
-    for each in result.get():
-        print(each)
-    job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
-    job_id_number = int(sum(job_id_number) / len(job_id_number))
-    try:
-        callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
-        redis_ = RedisFile(callback_connection)
-        for document in redis_.client.scan_iter():
-            redis_.get_key(path.join('/tmp/reports', document))
-    except ResponseError:
-        print("No files were transferred back ...")
+    for id in group_id:
+        print(group_id)
+        for each in group_id[id]['result'].get():
+            print(each)
+    # TODO: Uncomment callback when we will use transport back to jenkins
+    # job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
+    # job_id_number = int(sum(job_id_number) / len(job_id_number))
+    # try:
+    #     callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
+    #     redis_ = RedisFile(callback_connection)
+    #     for document in redis_.client.scan_iter():
+    #         redis_.get_key(path.join('/tmp/reports', document))
+    # except ResponseError:
+    #     print("No files were transferred back ...")
     return "Done"
 
 
@@ -190,35 +218,37 @@ def kill_job(args=None, group_id=None):
         group_id = args.groupid
     if not group_id:
         with open("_taskid", "r") as f:
-            group_id = f.read().strip()
-    print(group_id)
-    app = connect_to_celery(None)
-    result = GroupResult.restore(group_id, app=app)
-    tasks_id = []
-    if not result.ready():
-        abortable_result = []
-        for task in result.children:
-            tasks_id.append(tasks_id)
-            abortable_id = AbortableAsyncResult(id=task.id, parent=result.id, app=app)
-            abortable_id.abort()
-            abortable_result.append(abortable_id)
-        if abortable_result:
-            while not all(res.result for res in abortable_result):
-                sleep(5)
-                print("Aborting distributed tasks ... ")
-        print("Group aborted ...")
-        print("Verifying that tasks aborted as well ... ")
-        # This process is to handle a case when parent is canceled, but child have not
-        i = inspect()
+            group_id = loads(f.read().strip())
+    for id in group_id:
+        group_id[id]['app'] = connect_to_celery(0, redis_db=id)
+        group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
+        group_id[id]['task_id'] = []
+        if not group_id[id]['result'].ready():
+            abortable_result = []
+            for task in group_id[id]['result'].children:
+                group_id[id]['task_id'].append(task.id)
+                abortable_id = AbortableAsyncResult(id=task.id, parent=group_id[id]['result'].id,
+                                                    app=group_id[id]['app'])
+                abortable_id.abort()
+                abortable_result.append(abortable_id)
+            if abortable_result:
+                while not all(res.result for res in abortable_result):
+                    sleep(5)
+                    print("Aborting distributed tasks ... ")
+    print("Group aborted ...")
+    print("Verifying that tasks aborted as well ... ")
+    # This process is to handle a case when parent is canceled, but child have not
+    for id in group_id:
+        i = inspect(app=group_id[id]['app'])
         tasks_list = []
         for tasks in [i.active(), i.scheduled(), i.reserved()]:
             for node in tasks:
                 if tasks[node]:
                     tasks_list.append(task['id'] for task in tasks[node])
         abortable_result = []
-        for task_id in tasks_id:
+        for task_id in group_id[id]['task_id']:
             if task_id in tasks_list:
-                abortable_id = AbortableAsyncResult(id=task_id, app=app)
+                abortable_id = AbortableAsyncResult(id=task_id, app=group_id[id]['app'])
                 abortable_id.abort()
                 abortable_result.append(abortable_id)
         if abortable_result:
