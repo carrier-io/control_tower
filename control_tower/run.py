@@ -220,7 +220,7 @@ def kill_job(args=None, group_id=None):
         with open("_taskid", "r") as f:
             group_id = loads(f.read().strip())
     for id in group_id:
-        group_id[id]['app'] = connect_to_celery(0, redis_db=id)
+        group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
         group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
         group_id[id]['task_id'] = []
         if not group_id[id]['result'].ready():
