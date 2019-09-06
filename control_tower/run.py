@@ -24,6 +24,9 @@ from celery.task.control import inspect
 from time import sleep
 from redis.exceptions import ResponseError
 from control_tower.drivers.redis_file import RedisFile
+from control_tower.post_processor import PostProcessor
+import redis
+import shutil
 
 
 REDIS_USER = environ.get('REDIS_USER', '')
@@ -32,6 +35,7 @@ REDIS_HOST = environ.get('REDIS_HOST', 'localhost')
 REDIS_PORT = environ.get('REDIS_PORT', '6379')
 REDIS_DB = environ.get('REDIS_DB', 1)
 app = None
+callback_connection = ""
 
 
 def str2bool(v):
@@ -124,9 +128,14 @@ def start_job(args=None):
         celery_connection_cluster[str(channel)]['app'] = connect_to_celery(concurrency_cluster[str(channel)], channel)
     job_type = "".join(args.container)
     job_type += "".join(args.job_type)
-    job_id_number = [ord(char) for char in f'{job_type}{args.job_name}']
-    job_id_number = int(sum(job_id_number)/len(job_id_number))
-    callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
+    global callback_connection
+    for db_id in range(0, 16):
+        callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{db_id}'
+        redis_client = redis.Redis.from_url(callback_connection)
+        if redis_client.dbsize() == 0:
+            redis_client.set("job_name", str(args.job_name))
+            break
+
     for i in range(len(args.container)):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
@@ -185,16 +194,39 @@ def track_job(args=None, group_id=None, retry=True):
         print(group_id)
         for each in group_id[id]['result'].get():
             print(each)
-    # TODO: Uncomment callback when we will use transport back to jenkins
-    # job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
-    # job_id_number = int(sum(job_id_number) / len(job_id_number))
-    # try:
-    #     callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
-    #     redis_ = RedisFile(callback_connection)
-    #     for document in redis_.client.scan_iter():
-    #         redis_.get_key(path.join('/tmp/reports', document))
-    # except ResponseError:
-    #     print("No files were transferred back ...")
+
+    print("Redis connection in track method -->")
+    print(callback_connection)
+    redis_ = RedisFile(callback_connection)
+    try:
+        keys = redis_.client.keys()
+        print(keys)
+        tests_results = []
+        build_id = redis_.client.get("build_id").decode('UTF-8')
+        test_type = redis_.client.get("test_type").decode('UTF-8')
+        simulation = redis_.client.get("simulation").decode('UTF-8')
+        comparison_metric = redis_.client.get("comparison_metric").decode('UTF-8')
+        request_count = redis_.client.get("request_count").decode('UTF-8')
+        for key in keys:
+            if key.decode('UTF-8').startswith("Test results"):
+                result_map = loads(redis_.client.get(key).decode('UTF-8'))
+                tests_results.append(result_map)
+            if key.decode('UTF-8').startswith("reports_"):
+                with open("/tmp/reports/" + key.decode('UTF-8'), 'wb') as f:
+                    f.write(redis_.client.get(key))
+                shutil.unpack_archive("/tmp/reports/" + key.decode('UTF-8'),
+                                      "/tmp/reports/" + key.decode('UTF-8').replace(".zip", ""), 'zip')
+
+        redis_.client.flushdb()
+        post_processor = PostProcessor(tests_results, build_id, test_type, simulation, comparison_metric, request_count)
+        post_processor.aggregate_results()
+
+        #for document in redis_.client.scan_iter():
+         #   redis_.get_key(path.join('/tmp/reports', document))
+    except Exception as e:
+        redis_.client.flushdb()
+        print(e)
+        print("No data were transferred back ...")
     return "Done"
 
 
