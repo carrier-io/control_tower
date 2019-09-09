@@ -5,12 +5,11 @@ from perfreporter.reporter import Reporter
 
 class PostProcessor:
 
-    def __init__(self, tests_results, build_id, test_type, simulation, comparison_metric, request_count):
+    def __init__(self, tests_results, args):
         self.tests_results = tests_results
-        self.args = {"simulation": simulation, "type": test_type, "comparison_metric": comparison_metric,
-                     "build_id": build_id, "request_count": request_count}
+        self.args = args
 
-    def aggregate_results(self):
+    def results_post_processing(self):
         aggregated_errors, errors = self.aggregate_errors(self.tests_results)
         performance_degradation_rate, compare_with_baseline = self.aggregate_comparison_results(self.tests_results, self.args)
         missed_threshold_rate, compare_with_thresholds = self.aggregate_thresholds_results(self.tests_results, self.args)
