@@ -9,7 +9,7 @@ RUN pip install --upgrade setuptools
 ADD setup.py /tmp/setup.py
 ADD requirements.txt /tmp/requirements.txt
 RUN pip install git+https://github.com/celery/celery.git
-RUN pip install git+https://github.com/hunkom/perfreporter.git
+RUN pip install git+https://github.com/carrier-io/perfreporter.git
 COPY control_tower /tmp/control_tower
 
 RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
