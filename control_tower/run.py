@@ -140,6 +140,8 @@ def start_job(args=None):
             redis_client.set("job_name", str(args.job_name))
             break
 
+    with open('_redis_url', 'w') as f:
+        f.write(callback_connection)
     for i in range(len(args.container)):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
@@ -288,6 +290,11 @@ def kill_job(args=None, group_id=None):
             while not all(res.result for res in abortable_result):
                 sleep(5)
                 print("Aborting distributed tasks ... ")
+    print("Cleaning Redis db ... ")
+    with open("_redis_url", "r") as f:
+        redis_url = f.read()
+    redis_ = RedisFile(redis_url)
+    redis_.client.flushdb()
     exit(0)
 
 
