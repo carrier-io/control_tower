@@ -24,12 +24,11 @@ class PostProcessor:
             print(r.text)
         else:
             try:
-                from perfreporter.post_processor import DistributedModePostProcessor
+                from perfreporter.post_processor import PostProcessor
             except Exception as e:
                 print(e)
-            distributed_mode_post_processor = DistributedModePostProcessor(self.args, aggregated_errors, errors,
-                                                                           comparison_data)
-            distributed_mode_post_processor.post_processing()
+            post_processor = PostProcessor(self.args, aggregated_errors, errors, comparison_data)
+            post_processor.distributed_mode_post_processing()
 
     def aggregate_test_results(self, test_results):
         errors = []
