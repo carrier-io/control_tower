@@ -1,31 +1,37 @@
 import json
-import statistics
-from perfreporter.reporter import Reporter
+import requests
 
 
 class PostProcessor:
 
-    def __init__(self, tests_results, args):
+    def __init__(self, args, tests_results, galloper):
         self.tests_results = tests_results
+        self.galloper = galloper
         self.args = args
+        self.config_file = None
 
     def results_post_processing(self):
-        aggregated_errors, errors = self.aggregate_errors(self.tests_results)
-        performance_degradation_rate, compare_with_baseline = self.aggregate_comparison_results(self.tests_results, self.args)
-        missed_threshold_rate, compare_with_thresholds = self.aggregate_thresholds_results(self.tests_results, self.args)
-        reporter = Reporter()
-        print("Parsing config file ...")
-        loki, rp_service, jira_service = reporter.parse_config_file(self.args)
+        aggregated_errors, errors, comparison_data = self.aggregate_test_results(self.tests_results)
 
-        reporter.report_errors(aggregated_errors, errors, self.args, loki, rp_service, jira_service)
+        if self.galloper:
+            with open("/tmp/config.yaml", "r") as f:
+                self.config_file = f.read()
+            data = {'arguments': json.dumps(self.args), 'test_results': json.dumps(comparison_data),
+                    'config_file': json.dumps(self.config_file), 'aggregated_errors': json.dumps(aggregated_errors),
+                    'errors': json.dumps(errors)}
+            headers = {'content-type': 'application/json'}
+            r = requests.post(self.galloper, json=data, headers=headers)
+            print(r.text)
+        else:
+            try:
+                from perfreporter.post_processor import DistributedModePostProcessor
+            except Exception as e:
+                print(e)
+            distributed_mode_post_processor = DistributedModePostProcessor(self.args, aggregated_errors, errors,
+                                                                           comparison_data)
+            distributed_mode_post_processor.post_processing()
 
-        reporter.report_performance_degradation(performance_degradation_rate, compare_with_baseline, rp_service,
-                                                jira_service)
-
-        reporter.report_missed_thresholds(missed_threshold_rate, compare_with_thresholds, rp_service, jira_service)
-
-    @staticmethod
-    def aggregate_errors(test_results):
+    def aggregate_test_results(self, test_results):
         errors = []
         aggregated_errors = {}
         for test in test_results:
@@ -37,49 +43,43 @@ class PostProcessor:
                 else:
                     aggregated_errors[err]['Error count'] = int(aggregated_errors[err]['Error count']) \
                                                             + int(aggregated_err[err]['Error count'])
-        return aggregated_errors, errors
 
-    @staticmethod
-    def aggregate_comparison_results(test_results, args):
-        compare_with_baseline = []
-        performance_degradation_rate = 0
-        tmp_map = {}
+        results = {}
         for test in test_results:
-            comparison_info = json.loads(test['compare_with_baseline'])
-            for request in comparison_info:
-                if request['request_name'] not in tmp_map:
-                    tmp_map[request['request_name']] = {"response_time": [request['response_time']],
-                                                        "baseline": request['baseline']}
-                else:
-                    tmp_map[request['request_name']]['response_time'].append(request['response_time'])
-        for request in tmp_map:
-            compare_with_baseline.append({'request_name': request,
-                                          'response_time': int(statistics.median(tmp_map[request]['response_time'])),
-                                          'baseline': tmp_map[request]['baseline']})
+            comparison_info = json.loads(test['test_info'])
+            for key in comparison_info:
+                if key not in results:
+                    results[key] = {
+                        "total": 0,
+                        "KO": 0,
+                        "OK": 0,
+                        "1xx": 0,
+                        "2xx": 0,
+                        "3xx": 0,
+                        "4xx": 0,
+                        "5xx": 0,
+                        'NaN': 0,
+                        "users": 0,
+                        "method": comparison_info[key]["method"],
+                        "request_name": comparison_info[key]['request_name'],
+                        "duration": comparison_info[key]['duration'],
+                        "simulation": comparison_info[key]['simulation'],
+                        "test_type": comparison_info[key]['test_type'],
+                        "build_id": comparison_info[key]['build_id']
+                    }
+                results[key]['users'] += comparison_info[key]['users']
+                results[key]['total'] += comparison_info[key]['total']
+                results[key]['KO'] += comparison_info[key]['KO']
+                results[key]['OK'] += comparison_info[key]['OK']
+                results[key]['1xx'] += comparison_info[key]['1xx']
+                results[key]['2xx'] += comparison_info[key]['2xx']
+                results[key]['3xx'] += comparison_info[key]['3xx']
+                results[key]['4xx'] += comparison_info[key]['4xx']
+                results[key]['5xx'] += comparison_info[key]['5xx']
+                results[key]['NaN'] += comparison_info[key]['NaN']
 
-        if compare_with_baseline:
-            performance_degradation_rate = round(float(len(tmp_map) / int(args['request_count'])) * 100, 2)
-        return performance_degradation_rate, compare_with_baseline
-
-    @staticmethod
-    def aggregate_thresholds_results(test_results, args):
-        compare_with_thresholds = []
-        missed_threshold_rate = 0
-        tmp_map = {}
-        for test in test_results:
-            thresholds_info = json.loads(test['compare_with_thresholds'])
-            for request in thresholds_info:
-                if request['request_name'] not in tmp_map:
-                    tmp_map[request['request_name']] = {"response_time": [request['response_time']],
-                                                        "yellow": request['yellow'], "red": request['red']}
-                else:
-                    tmp_map[request['request_name']]['response_time'].append(request['response_time'])
-        for request in tmp_map:
-            response_time = int(statistics.median(tmp_map[request]['response_time']))
-            threshold = 'yellow' if response_time < int(tmp_map[request]['red']) else 'red'
-            compare_with_thresholds.append({"request_name": request, "response_time": response_time,
-                                            "threshold": threshold, "yellow": tmp_map[request]['yellow'],
-                                            "red": tmp_map[request]['red']})
-        if compare_with_thresholds:
-            missed_threshold_rate = round(float(len(tmp_map) / int(args['request_count'])) * 100, 2)
-        return missed_threshold_rate, compare_with_thresholds
+        comparison = []
+        for req in results:
+            comparison.append(results[req])
+        self.args['users'] = comparison[0]['users']
+        return aggregated_errors, errors, comparison

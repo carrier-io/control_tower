@@ -22,7 +22,6 @@ from celery.result import GroupResult
 from celery.contrib.abortable import AbortableAsyncResult
 from celery.task.control import inspect
 from time import sleep
-from control_tower.drivers.redis_file import RedisFile
 from control_tower.post_processor import PostProcessor
 import redis
 import shutil
@@ -33,6 +32,7 @@ REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
 REDIS_HOST = environ.get('REDIS_HOST', 'localhost')
 REDIS_PORT = environ.get('REDIS_PORT', '6379')
 REDIS_DB = environ.get('REDIS_DB', 1)
+GALLOPER_WEB_HOOK = environ.get('GALLOPER_WEB_HOOK', None)
 app = None
 callback_connection = ""
 
@@ -200,36 +200,28 @@ def track_job(args=None, group_id=None, retry=True):
         for each in group_id[id]['result'].get():
             print(each)
 
-    redis_ = RedisFile(callback_connection)
+    redis_ = redis.Redis.from_url(callback_connection)
     try:
-        keys = redis_.client.keys()
+        keys = redis_.keys()
         tests_results = []
-        build_id = redis_.client.get("build_id").decode('UTF-8')
-        test_type = redis_.client.get("test_type").decode('UTF-8')
-        simulation = redis_.client.get("simulation").decode('UTF-8')
-        comparison_metric = redis_.client.get("comparison_metric").decode('UTF-8')
-        request_count = redis_.client.get("request_count").decode('UTF-8')
-        args = {"simulation": simulation, "type": test_type, "comparison_metric": comparison_metric,
-                "build_id": build_id, "request_count": request_count}
+        args = loads(redis_.get("Arguments").decode('UTF-8'))
         for key in keys:
             _key = key.decode('UTF-8')
             if _key.startswith("Test results"):
-                tests_results.append(loads(redis_.client.get(key).decode('UTF-8')))
+                tests_results.append(loads(redis_.get(key).decode('UTF-8')))
             if _key.startswith("reports_"):
                 with open("/tmp/reports/" + _key, 'wb') as f:
-                    f.write(redis_.client.get(key))
+                    f.write(redis_.get(key))
                 shutil.unpack_archive("/tmp/reports/" + _key,
                                       "/tmp/reports/" + _key.replace(".zip", ""), 'zip')
                 remove("/tmp/reports/" + _key)
-
-        post_processor = PostProcessor(tests_results, args)
+        post_processor = PostProcessor(args, tests_results, GALLOPER_WEB_HOOK)
         post_processor.results_post_processing()
 
     except Exception as e:
         print(e)
-        print("No data were transferred back ...")
     finally:
-        redis_.client.flushdb()
+        redis_.flushdb()
     return "Done"
 
 
@@ -293,8 +285,8 @@ def kill_job(args=None, group_id=None):
     print("Cleaning Redis db ... ")
     with open("_redis_url", "r") as f:
         redis_url = f.read()
-    redis_ = RedisFile(redis_url)
-    redis_.client.flushdb()
+    redis_ = redis.Redis.from_url(redis_url)
+    redis_.flushdb()
     exit(0)
 
 

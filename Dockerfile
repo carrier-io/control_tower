@@ -1,15 +1,13 @@
 FROM python:3.7-alpine
 
-RUN apk update && apk add --no-cache git bash py-pip openssl ca-certificates py-openssl wget \
-    --virtual build-dependencies libffi-dev openssl-dev python-dev build-base
+RUN apk update && apk add --no-cache git bash
 
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
+RUN pip install --upgrade 'requests==2.20.0'
 
 ADD setup.py /tmp/setup.py
 ADD requirements.txt /tmp/requirements.txt
-RUN pip install git+https://github.com/celery/celery.git
-RUN pip install git+https://github.com/carrier-io/perfreporter.git
 COPY control_tower /tmp/control_tower
 
 RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
@@ -18,6 +16,7 @@ RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
 ADD run.sh /bin/run.sh
 RUN chmod +x /bin/run.sh
 COPY config.yaml /tmp/
+RUN pip install git+https://github.com/celery/celery.git
 
 SHELL ["/bin/bash", "-c"]
 
