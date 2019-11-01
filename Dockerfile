@@ -16,7 +16,8 @@ RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
 ADD run.sh /bin/run.sh
 RUN chmod +x /bin/run.sh
 COPY config.yaml /tmp/
-RUN pip install git+https://github.com/celery/celery.git
+RUN pip install celery==4.3.0
+RUN pip install kombu==4.5.0
 
 SHELL ["/bin/bash", "-c"]
 

@@ -24,6 +24,13 @@
 #  check_missed_thresholds: False                     # Perform analysis by exceeding thresholds False or True (Default: False)
 #  performance_degradation_rate: 20                   # Minimum performance degradation rate at which to create a JIRA ticket (Default: 20)
 #  missed_thresholds_rate: 50                         # Minimum missed thresholds rate at which to create a JIRA ticket (Default: 50)
+#influx:
+#  host: carrier_influx                               # Influx host DNS or IP
+#  port: 8086                                         # Influx port
+#  user: ""                                           # Influx user (login) (Default: "")
+#  password: ""                                       # Influx password (Default: "")
+#  influx_db: gatling                                 # Database name for test results (Default: gatling or jmeter)
+#  comparison_db: comparison                          # Database name for comparison builds (Default: comparison)
 #loki:
 #  host: http://loki                                  # Loki host DNS or IP
-#  port: 3100                                         # Loki port
+#  port: 3100

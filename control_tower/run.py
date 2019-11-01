@@ -25,7 +25,7 @@ from time import sleep
 from control_tower.post_processor import PostProcessor
 import redis
 import shutil
-
+from uuid import uuid4
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
@@ -92,10 +92,10 @@ def parse_id():
 
 
 def connect_to_celery(concurrency, redis_db=None):
-    #global app
+    # global app
     if not (redis_db and isinstance(redis_db, int)):
         redis_db = REDIS_DB
-    #if not app or redis_db not in app:
+    # if not app or redis_db not in app:
     app = Celery('CarrierExecutor',
                  broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
@@ -146,6 +146,13 @@ def start_job(args=None):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
         exec_params = deepcopy(args.execution_params[i])
+
+        if args.job_type in [['perfgun'], ['perfmeter']]:
+            with open('/tmp/config.yaml', 'r') as f:
+                config_yaml = f.read()
+            exec_params['config_yaml'] = dumps(config_yaml)
+            if 'build_id' not in exec_params.keys():
+                exec_params['build_id'] = f'build_{uuid4()}'
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'redis_connection': callback_connection,
@@ -203,19 +210,19 @@ def track_job(args=None, group_id=None, retry=True):
     redis_ = redis.Redis.from_url(callback_connection)
     try:
         keys = redis_.keys()
-        tests_results = []
+        errors = []
         args = loads(redis_.get("Arguments").decode('UTF-8'))
         for key in keys:
             _key = key.decode('UTF-8')
-            if _key.startswith("Test results"):
-                tests_results.append(loads(redis_.get(key).decode('UTF-8')))
+            if _key.startswith("Errors_"):
+                errors.append(loads(redis_.get(key).decode('UTF-8')))
             if _key.startswith("reports_"):
                 with open("/tmp/reports/" + _key, 'wb') as f:
                     f.write(redis_.get(key))
                 shutil.unpack_archive("/tmp/reports/" + _key,
                                       "/tmp/reports/" + _key.replace(".zip", ""), 'zip')
                 remove("/tmp/reports/" + _key)
-        post_processor = PostProcessor(args, tests_results, GALLOPER_WEB_HOOK)
+        post_processor = PostProcessor(args, errors, GALLOPER_WEB_HOOK)
         post_processor.results_post_processing()
 
     except Exception as e:
@@ -299,4 +306,3 @@ if __name__ == "__main__":
     # kill_job(config)
     # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
     pass
-
