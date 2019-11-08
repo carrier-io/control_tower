@@ -4,6 +4,7 @@ RUN apk update && apk add --no-cache git bash
 
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
+RUN pip install --upgrade 'requests==2.20.0'
 
 ADD setup.py /tmp/setup.py
 ADD requirements.txt /tmp/requirements.txt
@@ -14,7 +15,9 @@ RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
 
 ADD run.sh /bin/run.sh
 RUN chmod +x /bin/run.sh
-RUN pip install git+https://github.com/celery/celery.git
+COPY config.yaml /tmp/
+RUN pip install celery==4.3.0
+RUN pip install kombu==4.5.0
 
 SHELL ["/bin/bash", "-c"]
 

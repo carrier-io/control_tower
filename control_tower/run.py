@@ -16,22 +16,25 @@ import argparse
 
 from copy import deepcopy
 from json import loads, dumps
-from os import environ, path
+from os import environ, remove
 from celery import Celery, group
 from celery.result import GroupResult
 from celery.contrib.abortable import AbortableAsyncResult
 from celery.task.control import inspect
 from time import sleep
-from redis.exceptions import ResponseError
-from control_tower.drivers.redis_file import RedisFile
-
+from control_tower.post_processor import PostProcessor
+import redis
+import shutil
+from uuid import uuid4
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
 REDIS_HOST = environ.get('REDIS_HOST', 'localhost')
 REDIS_PORT = environ.get('REDIS_PORT', '6379')
 REDIS_DB = environ.get('REDIS_DB', 1)
+GALLOPER_WEB_HOOK = environ.get('GALLOPER_WEB_HOOK', None)
 app = None
+callback_connection = ""
 
 
 def str2bool(v):
@@ -80,14 +83,19 @@ def parse_id():
     parser.add_argument('-t', '--job_type', type=str, help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
     parser.add_argument('-n', '--job_name', type=str, help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
     args, _ = parser.parse_known_args()
+    if args.groupid:
+        for unparsed in _:
+            args.groupid = args.groupid + unparsed
+    if 'group_id' in args.groupid:
+        args.groupid = loads(args.groupid)
     return args
 
 
 def connect_to_celery(concurrency, redis_db=None):
-    #global app
+    # global app
     if not (redis_db and isinstance(redis_db, int)):
         redis_db = REDIS_DB
-    #if not app or redis_db not in app:
+    # if not app or redis_db not in app:
     app = Celery('CarrierExecutor',
                  broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
@@ -124,13 +132,27 @@ def start_job(args=None):
         celery_connection_cluster[str(channel)]['app'] = connect_to_celery(concurrency_cluster[str(channel)], channel)
     job_type = "".join(args.container)
     job_type += "".join(args.job_type)
-    job_id_number = [ord(char) for char in f'{job_type}{args.job_name}']
-    job_id_number = int(sum(job_id_number)/len(job_id_number))
-    callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
+    global callback_connection
+    for db_id in range(0, 16):
+        callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{db_id}'
+        redis_client = redis.Redis.from_url(callback_connection)
+        if redis_client.dbsize() == 0:
+            redis_client.set("job_name", str(args.job_name))
+            break
+
+    with open('_redis_url', 'w') as f:
+        f.write(callback_connection)
     for i in range(len(args.container)):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
         exec_params = deepcopy(args.execution_params[i])
+
+        if args.job_type in [['perfgun'], ['perfmeter']]:
+            with open('/tmp/config.yaml', 'r') as f:
+                config_yaml = f.read()
+            exec_params['config_yaml'] = dumps(config_yaml)
+            if 'build_id' not in exec_params.keys():
+                exec_params['build_id'] = f'build_{uuid4()}'
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'redis_connection': callback_connection,
@@ -172,7 +194,6 @@ def track_job(args=None, group_id=None, retry=True):
         sleep(30)
         print("Still processing ... ")
     if all(check_ready(group_id[id]['result']) for id in group_id):
-        # TODO: add pulling results from redis
         print("We are done successfully")
     else:
         print("We are failed badly")
@@ -185,16 +206,29 @@ def track_job(args=None, group_id=None, retry=True):
         print(group_id)
         for each in group_id[id]['result'].get():
             print(each)
-    # TODO: Uncomment callback when we will use transport back to jenkins
-    # job_id_number = [ord(char) for char in f'{args.job_type}{args.container}{args.job_name}']
-    # job_id_number = int(sum(job_id_number) / len(job_id_number))
-    # try:
-    #     callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{job_id_number}'
-    #     redis_ = RedisFile(callback_connection)
-    #     for document in redis_.client.scan_iter():
-    #         redis_.get_key(path.join('/tmp/reports', document))
-    # except ResponseError:
-    #     print("No files were transferred back ...")
+
+    redis_ = redis.Redis.from_url(callback_connection)
+    try:
+        keys = redis_.keys()
+        errors = []
+        args = loads(redis_.get("Arguments").decode('UTF-8'))
+        for key in keys:
+            _key = key.decode('UTF-8')
+            if _key.startswith("Errors_"):
+                errors.append(loads(redis_.get(key).decode('UTF-8')))
+            if _key.startswith("reports_"):
+                with open("/tmp/reports/" + _key, 'wb') as f:
+                    f.write(redis_.get(key))
+                shutil.unpack_archive("/tmp/reports/" + _key,
+                                      "/tmp/reports/" + _key.replace(".zip", ""), 'zip')
+                remove("/tmp/reports/" + _key)
+        post_processor = PostProcessor(args, errors, GALLOPER_WEB_HOOK)
+        post_processor.results_post_processing()
+
+    except Exception as e:
+        print(e)
+    finally:
+        redis_.flushdb()
     return "Done"
 
 
@@ -255,6 +289,11 @@ def kill_job(args=None, group_id=None):
             while not all(res.result for res in abortable_result):
                 sleep(5)
                 print("Aborting distributed tasks ... ")
+    print("Cleaning Redis db ... ")
+    with open("_redis_url", "r") as f:
+        redis_url = f.read()
+    redis_ = redis.Redis.from_url(redis_url)
+    redis_.flushdb()
     exit(0)
 
 
@@ -267,4 +306,3 @@ if __name__ == "__main__":
     # kill_job(config)
     # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
     pass
-
