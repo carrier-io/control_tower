@@ -142,17 +142,18 @@ def start_job(args=None):
 
     with open('_redis_url', 'w') as f:
         f.write(callback_connection)
+    build_id = f'build_{uuid4()}'
     for i in range(len(args.container)):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
         exec_params = deepcopy(args.execution_params[i])
 
-        if args.job_type in [['perfgun'], ['perfmeter']]:
+        if args.job_type[i] in ['perfgun', 'perfmeter']:
             with open('/tmp/config.yaml', 'r') as f:
                 config_yaml = f.read()
             exec_params['config_yaml'] = dumps(config_yaml)
             if 'build_id' not in exec_params.keys():
-                exec_params['build_id'] = f'build_{uuid4()}'
+                exec_params['build_id'] = build_id
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'redis_connection': callback_connection,
