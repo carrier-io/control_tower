@@ -298,12 +298,12 @@ def kill_job(args=None, group_id=None):
     exit(0)
 
 
-if __name__ == "__main__":
-    from control_tower.config_mock import BulkConfig
-    start_and_track(args=BulkConfig())
-    # group_id = start_job(config)
-    # print(group_id)
-    # track_job(group_id=group_id)
-    # kill_job(config)
-    # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
-    pass
+# if __name__ == "__main__":
+#     from control_tower.config_mock import BulkConfig
+#     start_and_track(args=BulkConfig())
+#     # group_id = start_job(config)
+#     # print(group_id)
+#     # track_job(group_id=group_id)
+#     # kill_job(config)
+#     # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
+#     pass
