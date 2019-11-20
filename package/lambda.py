@@ -1,13 +1,15 @@
 from traceback import format_exc
 from json import loads
 from control_tower.config_mock import BulkConfig
+from control_tower.run import start_job, track_job
+from time import sleep
 
 def parse_args(events):
     args = {
         "container": [],
         "execution_params": [],
         "job_type": [],
-        "job_name": [],
+        "job_name": '',
         "concurrency": [],
         "channel": []
     }
@@ -15,8 +17,8 @@ def parse_args(events):
         args['container'].append(event["container"])
         args["execution_params"].append(loads(event['execution_params']))
         args["job_type"].append(event['job_type'])
-        args["job_name"].append(event.get('job_name', ''))
         args["concurrency"].append(event['concurrency'])
+        args["job_name"] = event.get('job_name', 'test')
         if "channel" in event:
             args["channel"].append(event["channel"])
     args = BulkConfig(
@@ -25,7 +27,7 @@ def parse_args(events):
         job_type=args["job_type"],
         job_name=args["job_name"], 
         bulk_concurrency=args["concurrency"], 
-        channels=args["channel"]
+        channel=args["channel"]
         )
     return args
 
@@ -47,5 +49,8 @@ def handler(event=None, context=None):
         }
 
 
-if __name__ == "__main__":
-    handler()
+# if __name__ == "__main__":
+#     event = [{"container": "getcarrier/perfmeter:latest", \
+#     "execution_params": "{\"cmd\": \"-n -t /mnt/jmeter/FloodIO.jmx -Jbuild.id=distributed_1_1 -Jinflux.port=8086 -Jtest.type=distributed -Jinflux.db=jmeter -Jcomparison_db=comparison -Jenv.type=demo -Jinflux.host=192.168.1.193 -JVUSERS=10 -JDURATION=60 -JRAMP_UP=10 -Jtest_name=Flood\"}", \
+#     "job_type": "perfmeter","job_name": "test","concurrency": 2}]
+#     print(handler(event))
