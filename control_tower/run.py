@@ -16,7 +16,7 @@ import argparse
 
 from copy import deepcopy
 from json import loads, dumps
-from os import environ, remove
+from os import environ, remove, path
 from celery import Celery, group
 from celery.result import GroupResult
 from celery.contrib.abortable import AbortableAsyncResult
@@ -140,7 +140,7 @@ def start_job(args=None):
             redis_client.set("job_name", str(args.job_name))
             break
 
-    with open('_redis_url', 'w') as f:
+    with open('/tmp/_redis_url', 'w') as f:
         f.write(callback_connection)
     build_id = f'build_{uuid4()}'
     for i in range(len(args.container)):
@@ -149,9 +149,12 @@ def start_job(args=None):
         exec_params = deepcopy(args.execution_params[i])
 
         if args.job_type[i] in ['perfgun', 'perfmeter']:
-            with open('/tmp/config.yaml', 'r') as f:
-                config_yaml = f.read()
-            exec_params['config_yaml'] = dumps(config_yaml)
+            if path.exists('/tmp/config.yaml'):
+                with open('/tmp/config.yaml', 'r') as f:
+                    config_yaml = f.read()
+                exec_params['config_yaml'] = dumps(config_yaml)
+            else:
+                exec_params['config_yaml'] = {}
             if 'build_id' not in exec_params.keys():
                 exec_params['build_id'] = build_id
         for _ in range(int(args.concurrency[i])):
@@ -167,7 +170,7 @@ def start_job(args=None):
         group_id.save()
         group_ids[each] = {"group_id": group_id.id}
     print(f"Group IDs: {dumps(group_ids)}")
-    with open('_taskid', 'w') as f:
+    with open('/tmp/_taskid', 'w') as f:
         f.write(dumps(group_ids))
     return group_ids
 
@@ -252,7 +255,7 @@ def kill_job(args=None, group_id=None):
     if not group_id:
         group_id = args.groupid
     if not group_id:
-        with open("_taskid", "r") as f:
+        with open("/tmp/_taskid", "r") as f:
             group_id = loads(f.read().strip())
     for id in group_id:
         group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
@@ -291,19 +294,19 @@ def kill_job(args=None, group_id=None):
                 sleep(5)
                 print("Aborting distributed tasks ... ")
     print("Cleaning Redis db ... ")
-    with open("_redis_url", "r") as f:
+    with open("/tmp/_redis_url", "r") as f:
         redis_url = f.read()
     redis_ = redis.Redis.from_url(redis_url)
     redis_.flushdb()
     exit(0)
 
 
-if __name__ == "__main__":
-    from control_tower.config_mock import BulkConfig
-    start_and_track(args=BulkConfig())
-    # group_id = start_job(config)
-    # print(group_id)
-    # track_job(group_id=group_id)
-    # kill_job(config)
-    # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
-    pass
+# if __name__ == "__main__":
+#     from control_tower.config_mock import BulkConfig
+#     start_and_track(args=BulkConfig())
+#     # group_id = start_job(config)
+#     # print(group_id)
+#     # track_job(group_id=group_id)
+#     # kill_job(config)
+#     # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
+#     pass

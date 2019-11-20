@@ -22,23 +22,18 @@ class Config(object):
 
 
 class BulkConfig(object):
-    def __init__(self, bulk_container=["getcarrier/perfmeter:latest", "getcarrier/perfmeter:latest"],
-                 bulk_params=[{"cmd": "-n -t /mnt/jmeter/FloodIO.jmx -JVUSERS=10 -JDURATION=120 -JRAMP_UP=1 -Jtest_name=test"},{"cmd": "-n -t /mnt/jmeter/FloodIO.jmx -JVUSERS=10 -JDURATION=120 -JRAMP_UP=1 -Jtest_name=test"}],
-                 job_type=["free_style", "free_style"], job_name="test", bulk_concurrency=[1, 1], groupid=None):
-        self.bulk_container = bulk_container
-        self.bulk_params = bulk_params
-        self.bulk_type = job_type
+    def __init__(self, bulk_container, bulk_params, job_type, job_name, bulk_concurrency, channel=[]):
+        self.container = bulk_container
+        self.execution_params = bulk_params
         self.job_name = job_name
-        self.bulk_concurrency = bulk_concurrency
-        self.concurrency = 0
-        self.container = ''
-        self.job_type = ''
-        self.groupid=groupid
+        self.concurrency = bulk_concurrency
+        self.job_type = job_type
+        self.channel = channel
 
     def get_config(self):
-        return dict(bulk_container=self.bulk_container,
-                    bulk_params=self.bulk_params,
+        return dict(container=self.container,
+                    execution_params=self.execution_params,
                     job_type=self.job_type,
                     job_name=self.job_name,
-                    bulk_concurrency=self.bulk_concurrency,
-                    groupid=self.groupid)
+                    concurrency=self.concurrency,
+                    channel=self.channel)
