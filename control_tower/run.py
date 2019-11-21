@@ -33,6 +33,11 @@ REDIS_HOST = environ.get('REDIS_HOST', 'localhost')
 REDIS_PORT = environ.get('REDIS_PORT', '6379')
 REDIS_DB = environ.get('REDIS_DB', 1)
 GALLOPER_WEB_HOOK = environ.get('GALLOPER_WEB_HOOK', None)
+LOKI_HOST = environ.get('loki_host', None)
+LOKI_PORT = environ.get('loki_port', '3100')
+GALLOPER_URL = environ.get('galloper_url', None)
+BUCKET = environ.get('bucket', None)
+TEST = environ.get('test', None)
 app = None
 callback_connection = ""
 
@@ -131,7 +136,7 @@ def start_job(args=None):
             celery_connection_cluster[str(channel)] = {}
         celery_connection_cluster[str(channel)]['app'] = connect_to_celery(concurrency_cluster[str(channel)], channel)
     job_type = "".join(args.container)
-    job_type += "".join(args.job_type)    
+    job_type += "".join(args.job_type)
     global callback_connection
     for db_id in range(0, 16):
         callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{db_id}'
@@ -157,6 +162,14 @@ def start_job(args=None):
                 exec_params['config_yaml'] = {}
             if 'build_id' not in exec_params.keys():
                 exec_params['build_id'] = build_id
+            if LOKI_HOST:
+                exec_params['loki_host'] = LOKI_HOST
+                exec_params['loki_port'] = LOKI_PORT
+            if all(a for a in [GALLOPER_URL, BUCKET, TEST]):
+                exec_params['galloper_url'] = GALLOPER_URL
+                exec_params['bucket'] = BUCKET
+                exec_params['test'] = TEST
+
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'redis_connection': callback_connection,
