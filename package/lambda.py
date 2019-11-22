@@ -1,3 +1,4 @@
+import os
 from traceback import format_exc
 from json import loads
 from control_tower.config_mock import BulkConfig
@@ -34,6 +35,7 @@ def parse_args(events):
 
 def handler(event=None, context=None):
     try:
+        os.mkdir('/tmp/reports')
         args = parse_args(event)
         group_id = start_job(args)
         sleep(60)
