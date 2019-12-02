@@ -1,3 +1,4 @@
+from os import path
 import json
 import requests
 
@@ -14,8 +15,11 @@ class PostProcessor:
         aggregated_errors = self.aggregate_errors(self.errors)
 
         if self.galloper:
-            with open("/tmp/config.yaml", "r") as f:
-                self.config_file = f.read()
+            self.config_file = '{}'
+            if path.exists('/tmp/config.yaml'):
+                with open("/tmp/config.yaml", "r") as f:
+                    self.config_file = f.read()
+
             data = {'arguments': json.dumps(self.args), 'config_file': json.dumps(self.config_file),
                     'aggregated_errors': json.dumps(aggregated_errors)}
             headers = {'content-type': 'application/json'}
