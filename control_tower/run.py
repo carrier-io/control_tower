@@ -16,15 +16,13 @@ import argparse
 
 from copy import deepcopy
 from json import loads, dumps
-from os import environ, remove, path
+from os import environ, path
 from celery import Celery, group
 from celery.result import GroupResult
 from celery.contrib.abortable import AbortableAsyncResult
 from celery.task.control import inspect
 from time import sleep
 from control_tower.post_processor import PostProcessor
-import redis
-import shutil
 from uuid import uuid4
 
 REDIS_USER = environ.get('REDIS_USER', '')
@@ -37,10 +35,11 @@ LOKI_HOST = environ.get('loki_host', None)
 LOKI_PORT = environ.get('loki_port', '3100')
 GALLOPER_URL = environ.get('galloper_url', None)
 BUCKET = environ.get('bucket', None)
-TEST = environ.get('test', None)
+TEST = environ.get('artifact', None)
+BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
+DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
 app = None
-callback_connection = ""
-
+results_bucket = ''
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -137,17 +136,9 @@ def start_job(args=None):
         celery_connection_cluster[str(channel)]['app'] = connect_to_celery(concurrency_cluster[str(channel)], channel)
     job_type = "".join(args.container)
     job_type += "".join(args.job_type)
-    global callback_connection
-    for db_id in range(0, 16):
-        callback_connection = f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{db_id}'
-        redis_client = redis.Redis.from_url(callback_connection)
-        if redis_client.dbsize() == 0:
-            redis_client.set("job_name", str(args.job_name))
-            break
 
-    with open('/tmp/_redis_url', 'w') as f:
-        f.write(callback_connection)
-    build_id = f'build_{uuid4()}'
+    global results_bucket
+    results_bucket = str(args.job_name).replace("_", "").lower()
     for i in range(len(args.container)):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
@@ -160,20 +151,20 @@ def start_job(args=None):
                 exec_params['config_yaml'] = dumps(config_yaml)
             else:
                 exec_params['config_yaml'] = {}
-            if 'build_id' not in exec_params.keys():
-                exec_params['build_id'] = build_id
             if LOKI_HOST:
                 exec_params['loki_host'] = LOKI_HOST
                 exec_params['loki_port'] = LOKI_PORT
-            if all(a for a in [GALLOPER_URL, BUCKET, TEST]):
-                exec_params['galloper_url'] = GALLOPER_URL
-                exec_params['bucket'] = BUCKET
-                exec_params['test'] = TEST
+
+            exec_params['build_id'] = BUILD_ID
+            exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
+            exec_params['galloper_url'] = GALLOPER_URL
+            exec_params['bucket'] = BUCKET
+            exec_params['artifact'] = TEST
+            exec_params['results_bucket'] = results_bucket
 
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
-                           'execution_params': exec_params, 'redis_connection': callback_connection,
-                           'job_name': args.job_name}
+                           'execution_params': exec_params, 'redis_connection': '',  'job_name': args.job_name}
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
     group_ids = {}
@@ -224,28 +215,9 @@ def track_job(args=None, group_id=None, retry=True):
         for each in group_id[id]['result'].get():
             print(each)
 
-    redis_ = redis.Redis.from_url(callback_connection)
-    try:
-        keys = redis_.keys()
-        errors = []
-        args = loads(redis_.get("Arguments").decode('UTF-8'))
-        for key in keys:
-            _key = key.decode('UTF-8')
-            if _key.startswith("Errors_"):
-                errors.append(loads(redis_.get(key).decode('UTF-8')))
-            if _key.startswith("reports_"):
-                with open("/tmp/reports/" + _key, 'wb') as f:
-                    f.write(redis_.get(key))
-                shutil.unpack_archive("/tmp/reports/" + _key,
-                                      "/tmp/reports/" + _key.replace(".zip", ""), 'zip')
-                remove("/tmp/reports/" + _key)
-        post_processor = PostProcessor(args, errors, GALLOPER_WEB_HOOK)
-        post_processor.results_post_processing()
+    post_processor = PostProcessor(GALLOPER_URL, GALLOPER_WEB_HOOK, results_bucket, DISTRIBUTED_MODE_PREFIX)
+    post_processor.results_post_processing()
 
-    except Exception as e:
-        print(e)
-    finally:
-        redis_.flushdb()
     return "Done"
 
 
@@ -306,11 +278,6 @@ def kill_job(args=None, group_id=None):
             while not all(res.result for res in abortable_result):
                 sleep(5)
                 print("Aborting distributed tasks ... ")
-    print("Cleaning Redis db ... ")
-    with open("/tmp/_redis_url", "r") as f:
-        redis_url = f.read()
-    redis_ = redis.Redis.from_url(redis_url)
-    redis_.flushdb()
     exit(0)
 
 
@@ -323,3 +290,4 @@ def kill_job(args=None, group_id=None):
 #     # kill_job(config)
 #     # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
 #     pass
+
