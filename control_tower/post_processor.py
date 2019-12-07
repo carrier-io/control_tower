@@ -5,43 +5,31 @@ import requests
 
 class PostProcessor:
 
-    def __init__(self, args, errors, galloper):
-        self.errors = errors
-        self.galloper = galloper
-        self.args = args
-        self.config_file = None
+    def __init__(self, galloper_url, galloper_web_hook, bucket, prefix):
+        self.galloper_url = galloper_url
+        self.galloper_web_hook = galloper_web_hook
+        self.bucket = bucket
+        self.prefix = prefix
+        self.config_file = '{}'
 
     def results_post_processing(self):
-        aggregated_errors = self.aggregate_errors(self.errors)
 
-        if self.galloper:
-            self.config_file = '{}'
+        if self.galloper_web_hook:
             if path.exists('/tmp/config.yaml'):
                 with open("/tmp/config.yaml", "r") as f:
                     self.config_file = f.read()
 
-            data = {'arguments': json.dumps(self.args), 'config_file': json.dumps(self.config_file),
-                    'aggregated_errors': json.dumps(aggregated_errors)}
+            data = {'galloper_url': self.galloper_url, 'config_file': json.dumps(self.config_file),
+                    'bucket': self.bucket, 'prefix': self.prefix}
             headers = {'content-type': 'application/json'}
-            r = requests.post(self.galloper, json=data, headers=headers)
+            r = requests.post(self.galloper_web_hook, json=data, headers=headers)
             print(r.text)
         else:
             try:
                 from perfreporter.post_processor import PostProcessor
             except Exception as e:
                 print(e)
-            post_processor = PostProcessor(self.args, aggregated_errors)
-            post_processor.post_processing()
+            post_processor = PostProcessor(self.config_file)
+            post_processor.distributed_mode_post_processing(self.galloper_url, self.bucket, self.prefix)
 
-    @staticmethod
-    def aggregate_errors(test_errors):
-        aggregated_errors = {}
-        for errors in test_errors:
-            for err in errors:
-                if err not in aggregated_errors:
-                    aggregated_errors[err] = errors[err]
-                else:
-                    aggregated_errors[err]['Error count'] = int(aggregated_errors[err]['Error count']) \
-                                                            + int(errors[err]['Error count'])
 
-        return aggregated_errors
