@@ -36,6 +36,7 @@ LOKI_PORT = environ.get('loki_port', '3100')
 GALLOPER_URL = environ.get('galloper_url', None)
 BUCKET = environ.get('bucket', None)
 TEST = environ.get('artifact', None)
+ADDITIONAL_FILES = environ.get('additional_files', None)
 BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
 DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
 app = None
@@ -154,6 +155,8 @@ def start_job(args=None):
             if LOKI_HOST:
                 exec_params['loki_host'] = LOKI_HOST
                 exec_params['loki_port'] = LOKI_PORT
+            if ADDITIONAL_FILES:
+                exec_params['additional_files'] = ADDITIONAL_FILES
 
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
