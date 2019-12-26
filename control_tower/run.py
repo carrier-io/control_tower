@@ -39,8 +39,10 @@ TEST = environ.get('artifact', None)
 ADDITIONAL_FILES = environ.get('additional_files', None)
 BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
 DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
+JVM_ARGS = environ.get('JVM_ARGS', None)
 app = None
 results_bucket = ''
+
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -157,6 +159,8 @@ def start_job(args=None):
                 exec_params['loki_port'] = LOKI_PORT
             if ADDITIONAL_FILES:
                 exec_params['additional_files'] = ADDITIONAL_FILES
+            if JVM_ARGS:
+                exec_params['JVM_ARGS'] = JVM_ARGS
 
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
