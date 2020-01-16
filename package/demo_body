@@ -1,7 +1,7 @@
 [ 
         {
             "container": "getcarrier/perfmeter:latest",
-            "execution_params": "{\"cmd\": \"-n -t /mnt/jmeter/FloodIO.jmx -Jinflux.port=8086 -Jtest.type=distributed -Jinflux.db=jmeter -Jcomparison_db=comparison -Jenv.type=demo -Jinflux.host=192.168.1.193 -JVUSERS=10 -JDURATION=60 -JRAMP_UP=10 -Jtest_name=Flood\"}",
+            "execution_params": "{\"cmd\": \"-n -t /mnt/jmeter/FloodIO.jmx -Jinflux.port=8086 -Jtest.type=distributed -Jinflux.db=jmeter -Jcomparison_db=comparison -Jenv.type=demo -Jinflux.host=54.236.61.162 -JVUSERS=10 -JDURATION=60 -JRAMP_UP=10 -Jtest_name=Flood\"}",
             "job_type": "perfmeter",
             "job_name": "test",
             "concurrency": 2
