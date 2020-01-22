@@ -78,6 +78,10 @@ def arg_parse():
                         help="Number of parallel workers to run the job")
     parser.add_argument('-r', '--channel', action="append", default=[], type=int,
                         help="Number of parallel workers to run the job")
+    parser.add_argument('-a', '--artifact', action="append", default="", type=str,
+                        help="Number of parallel workers to run the job")
+    parser.add_argument('-b', '--bucket', action="append", default="", type=str,
+                        help="Number of parallel workers to run the job")
     args, _ = parser.parse_known_args()
     return args
 
@@ -165,8 +169,8 @@ def start_job(args=None):
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
-            exec_params['bucket'] = BUCKET
-            exec_params['artifact'] = TEST
+            exec_params['bucket'] = BUCKET if not args.bucket else args.bucket[i]
+            exec_params['artifact'] = TEST if not args.artifact else args.artifact[i]
             exec_params['results_bucket'] = results_bucket
 
         for _ in range(int(args.concurrency[i])):

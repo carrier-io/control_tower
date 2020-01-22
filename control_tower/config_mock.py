@@ -22,13 +22,16 @@ class Config(object):
 
 
 class BulkConfig(object):
-    def __init__(self, bulk_container, bulk_params, job_type, job_name, bulk_concurrency, channel=[]):
+    def __init__(self, bulk_container, bulk_params, job_type, job_name, bulk_concurrency, channel=[],
+                 bucket="", artifact=""):
         self.container = bulk_container
         self.execution_params = bulk_params
         self.job_name = job_name
         self.concurrency = bulk_concurrency
         self.job_type = job_type
         self.channel = channel
+        self.bucket = bucket
+        self.artifact = artifact
 
     def get_config(self):
         return dict(container=self.container,
@@ -36,4 +39,6 @@ class BulkConfig(object):
                     job_type=self.job_type,
                     job_name=self.job_name,
                     concurrency=self.concurrency,
-                    channel=self.channel)
+                    channel=self.channel,
+                    bucket=self.bucket,
+                    artifact=self.artifact)
