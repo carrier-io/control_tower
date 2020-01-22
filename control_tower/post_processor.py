@@ -1,4 +1,4 @@
-from os import path
+from os import path, environ
 import json
 import requests
 
@@ -18,6 +18,8 @@ class PostProcessor:
             if path.exists('/tmp/config.yaml'):
                 with open("/tmp/config.yaml", "r") as f:
                     self.config_file = f.read()
+            else:
+                self.config_file = environ.get('CONFIG_FILE', '{}')
 
             data = {'galloper_url': self.galloper_url, 'config_file': json.dumps(self.config_file),
                     'bucket': self.bucket, 'prefix': self.prefix}
