@@ -14,7 +14,8 @@ def parse_args(events):
         "concurrency": [],
         "channel": [],
         "artifact": [],
-        "bucket": []
+        "bucket": [],
+        "save_reports": ''
     }
     for event in events:
         args['container'].append(event["container"])
@@ -26,6 +27,7 @@ def parse_args(events):
             args["channel"].append(event["channel"])
         args["bucket"].append(event.get('bucket', ''))
         args["artifact"].append(event.get('artifact', ''))
+        args["save_reports"] = event.get('save_reports', None)
 
     args = BulkConfig(
         bulk_container=args['container'], 
@@ -35,7 +37,8 @@ def parse_args(events):
         bulk_concurrency=args["concurrency"], 
         channel=args["channel"],
         bucket=args["bucket"],
-        artifact=args["artifact"]
+        artifact=args["artifact"],
+        save_reports=args["save_reports"]
         )
     return args
 
