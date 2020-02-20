@@ -40,6 +40,8 @@ ADDITIONAL_FILES = environ.get('additional_files', None)
 BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
 DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
 JVM_ARGS = environ.get('JVM_ARGS', None)
+mount_source = environ.get('mount_source', None)
+mount_target = environ.get('mount_target', None)
 app = None
 results_bucket = ''
 
@@ -164,6 +166,10 @@ def start_job(args=None):
                 exec_params['additional_files'] = ADDITIONAL_FILES
             if JVM_ARGS:
                 exec_params['JVM_ARGS'] = JVM_ARGS
+            if mount_source:
+                exec_params['mount_source'] = mount_source
+            if mount_target:
+                exec_params['mount_target'] = mount_target
 
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
