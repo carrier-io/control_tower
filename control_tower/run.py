@@ -24,6 +24,9 @@ from celery.task.control import inspect
 from time import sleep
 from control_tower.post_processor import PostProcessor
 from uuid import uuid4
+import requests
+import re
+from datetime import datetime
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
@@ -42,6 +45,7 @@ DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
 JVM_ARGS = environ.get('JVM_ARGS', None)
 mount_source = environ.get('mount_source', None)
 mount_target = environ.get('mount_target', None)
+release_id = environ.get('release_id', None)
 app = None
 results_bucket = ''
 
@@ -112,6 +116,7 @@ def connect_to_celery(concurrency, redis_db=None):
                  broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  include=['celery'])
+
     print(f"Celery Status: {dumps(app.control.inspect().stats(), indent=2)}")
     if concurrency:
         workers = sum(value['pool']['max-concurrency'] for key, value in app.control.inspect().stats().items())
@@ -128,6 +133,7 @@ def connect_to_celery(concurrency, redis_db=None):
 def start_job(args=None):
     if not args:
         args = arg_parse()
+    test_start_notify(args)
     concurrency_cluster = {}
     channels = args.channel
     if not channels:
@@ -194,6 +200,35 @@ def start_job(args=None):
     with open('/tmp/_taskid', 'w') as f:
         f.write(dumps(group_ids))
     return group_ids
+
+
+def test_start_notify(args):
+    if GALLOPER_URL:
+        test_name, test_type, lg_type, environment, vusers, duration = '', '', '', '', 0, 30.0
+        try:
+            lg_type = 'jmeter' if args.job_type[0] == 'perfmeter' else 'gatling'
+            exec_params = args.execution_params[0]['cmd'] + " "
+            test_type = re.findall('-Jtest.type=(.+?) ', exec_params)[0]
+            test_name = re.findall("-Jtest_name=(.+?) ", exec_params)[0]
+            duration = float(re.findall("-JDURATION=(.+?) ", exec_params)[0])
+            vusers = int(re.findall("-JVUSERS=(.+?) ", exec_params)[0]) * args.concurrency[0]
+            environment = re.findall("-Jenv.type=(.+?) ", exec_params)[0]
+        except Exception:
+            if not test_name:
+                test_name = 'test'
+            if not test_type:
+                test_type = 'demo'
+            if not environment:
+                environment = 'demo'
+        start_time = datetime.utcnow().isoformat("T") + "Z"
+        data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
+                'duration': duration, 'vusers': vusers, 'environment': environment, 'start_time': start_time,
+                'missed': 0}
+        if release_id:
+            data['release_id'] = release_id
+        headers = {'content-type': 'application/json'}
+        r = requests.post(f'{GALLOPER_URL}/api/report', json=data, headers=headers)
+        print(r.text)
 
 
 def start_job_exec(args=None):
