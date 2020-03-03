@@ -17,12 +17,11 @@ import argparse
 from copy import deepcopy
 from json import loads, dumps
 from os import environ, path
-from celery import Celery, group
+from celery import Celery, chord
 from celery.result import GroupResult
 from celery.contrib.abortable import AbortableAsyncResult
 from celery.task.control import inspect
 from time import sleep
-from control_tower.post_processor import PostProcessor
 from uuid import uuid4
 import requests
 import re
@@ -48,6 +47,11 @@ mount_target = environ.get('mount_target', None)
 release_id = environ.get('release_id', None)
 app = None
 results_bucket = ''
+JOB_TYPE_MAPPING = {
+    "perfmeter": "jmeter",
+    "perfgun": "gatling",
+    "free_style": "other"
+}
 
 
 def str2bool(v):
@@ -133,7 +137,6 @@ def connect_to_celery(concurrency, redis_db=None):
 def start_job(args=None):
     if not args:
         args = arg_parse()
-    test_start_notify(args)
     concurrency_cluster = {}
     channels = args.channel
     if not channels:
@@ -144,15 +147,21 @@ def start_job(args=None):
             concurrency_cluster[str(channels[index])] = 0
         concurrency_cluster[str(channels[index])] += args.concurrency[index]
     celery_connection_cluster = {}
+    post_processor_args = [
+        GALLOPER_URL,
+        GALLOPER_WEB_HOOK,
+        str(args.job_name).replace("_", "").lower(),
+        DISTRIBUTED_MODE_PREFIX
+    ]
     for channel in channels:
         if str(channel) not in celery_connection_cluster:
             celery_connection_cluster[str(channel)] = {}
         celery_connection_cluster[str(channel)]['app'] = connect_to_celery(concurrency_cluster[str(channel)], channel)
+        celery_connection_cluster[str(channel)]['post_processor'] = \
+            celery_connection_cluster[str(channel)]['app'].signature('tasks.post_process', kwargs=post_processor_args)
     job_type = "".join(args.container)
     job_type += "".join(args.job_type)
 
-    global results_bucket
-    results_bucket = str(args.job_name).replace("_", "").lower()
     for i in range(len(args.container)):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
@@ -190,40 +199,40 @@ def start_job(args=None):
                            'execution_params': exec_params, 'redis_connection': '',  'job_name': args.job_name}
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
+
     group_ids = {}
     for each in celery_connection_cluster:
-        task_group = group(celery_connection_cluster[each]['tasks'], app=celery_connection_cluster[each]['app'])
+        task_group = chord(celery_connection_cluster[each]['tasks'],
+                           app=celery_connection_cluster[each]['app'])(
+            celery_connection_cluster[each]['post_processor'])
         group_id = task_group.apply_async()
         group_id.save()
         group_ids[each] = {"group_id": group_id.id}
     print(f"Group IDs: {dumps(group_ids)}")
+    test_start_notify(args, group_ids)
     with open('/tmp/_taskid', 'w') as f:
         f.write(dumps(group_ids))
     return group_ids
 
 
-def test_start_notify(args):
+def test_start_notify(args, group_ids):
     if GALLOPER_URL:
-        test_name, test_type, lg_type, environment, vusers, duration = '', '', '', '', 0, 30.0
-        try:
-            lg_type = 'jmeter' if args.job_type[0] == 'perfmeter' else 'gatling'
-            exec_params = args.execution_params[0]['cmd'] + " "
-            test_type = re.findall('-Jtest.type=(.+?) ', exec_params)[0]
-            test_name = re.findall("-Jtest_name=(.+?) ", exec_params)[0]
-            duration = float(re.findall("-JDURATION=(.+?) ", exec_params)[0])
-            vusers = int(re.findall("-JVUSERS=(.+?) ", exec_params)[0]) * args.concurrency[0]
-            environment = re.findall("-Jenv.type=(.+?) ", exec_params)[0]
-        except Exception:
-            if not test_name:
-                test_name = 'test'
-            if not test_type:
-                test_type = 'demo'
-            if not environment:
-                environment = 'demo'
+        lg_type = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
+        exec_params = args.execution_params[0]['cmd']
+        test_type = re.findall('-Jtest.type=(.+?) ', exec_params)
+        test_type = test_type[0] if len(test_type) else 'demo'
+        test_name = re.findall("-Jtest_name=(.+?) ", exec_params)
+        test_name = test_name[0] if len(test_name) else 'test'
+        duration = re.findall("-JDURATION=(.+?) ", exec_params)
+        duration = float(duration[0]) if len(duration) else 0
+        vusers = re.findall("-JVUSERS=(.+?) ", exec_params)[0]
+        vusers = int(vusers[0] * args.concurrency[0]) if len(vusers) else 0
+        environment = re.findall("-Jenv.type=(.+?) ", exec_params)
+        environment = environment[0] if len(environment) else 'demo'
         start_time = datetime.utcnow().isoformat("T") + "Z"
         data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
                 'duration': duration, 'vusers': vusers, 'environment': environment, 'start_time': start_time,
-                'missed': 0}
+                'missed': 0, "group_ids": group_ids}
         if release_id:
             data['release_id'] = release_id
         headers = {'content-type': 'application/json'}
@@ -266,9 +275,6 @@ def track_job(args=None, group_id=None, retry=True):
         print(group_id)
         for each in group_id[id]['result'].get():
             print(each)
-
-    post_processor = PostProcessor(GALLOPER_URL, GALLOPER_WEB_HOOK, results_bucket, DISTRIBUTED_MODE_PREFIX)
-    post_processor.results_post_processing()
 
     return "Done"
 
