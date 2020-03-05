@@ -225,7 +225,7 @@ def test_start_notify(args, group_ids):
         test_name = test_name[0] if len(test_name) else 'test'
         duration = re.findall("-JDURATION=(.+?) ", exec_params)
         duration = float(duration[0]) if len(duration) else 0
-        vusers = re.findall("-JVUSERS=(.+?) ", exec_params)[0]
+        vusers = re.findall("-JVUSERS=(.+?) ", exec_params)
         vusers = int(vusers[0] * args.concurrency[0]) if len(vusers) else 0
         environment = re.findall("-Jenv.type=(.+?) ", exec_params)
         environment = environment[0] if len(environment) else 'demo'
