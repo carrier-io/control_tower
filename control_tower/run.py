@@ -46,7 +46,6 @@ mount_source = environ.get('mount_source', None)
 mount_target = environ.get('mount_target', None)
 release_id = environ.get('release_id', None)
 app = None
-results_bucket = ''
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
@@ -147,12 +146,13 @@ def start_job(args=None):
             concurrency_cluster[str(channels[index])] = 0
         concurrency_cluster[str(channels[index])] += args.concurrency[index]
     celery_connection_cluster = {}
-    post_processor_args = [
-        GALLOPER_URL,
-        GALLOPER_WEB_HOOK,
-        str(args.job_name).replace("_", "").lower(),
-        DISTRIBUTED_MODE_PREFIX
-    ]
+    results_bucket = str(args.job_name).replace("_", "").lower()
+    post_processor_args = {
+        "galloper_url": GALLOPER_URL,
+        "galloper_web_hook": GALLOPER_WEB_HOOK,
+        "bucket": results_bucket,
+        "prefix": DISTRIBUTED_MODE_PREFIX
+    }
     for channel in channels:
         if str(channel) not in celery_connection_cluster:
             celery_connection_cluster[str(channel)] = {}
@@ -200,25 +200,30 @@ def start_job(args=None):
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
-    group_ids = {}
+    groups = []
     for each in celery_connection_cluster:
         task_group = chord(celery_connection_cluster[each]['tasks'],
                            app=celery_connection_cluster[each]['app'])(
             celery_connection_cluster[each]['post_processor'])
-        group_id = task_group.apply_async()
-        group_id.save()
-        group_ids[each] = {"group_id": group_id.id}
-    print(f"Group IDs: {dumps(group_ids)}")
-    test_start_notify(args, group_ids)
-    with open('/tmp/_taskid', 'w') as f:
-        f.write(dumps(group_ids))
-    return group_ids
+        groups.append(task_group)
+
+    test_start_notify(args)
+    for group in groups:
+        group.get()
+    #     group_id = task_group.apply_async()
+    #     group_id.save()
+    #     group_ids[each] = {"group_id": group_id.id}
+    # print(f"Group IDs: {dumps(group_ids)}")
+
+    # with open('/tmp/_taskid', 'w') as f:
+    #     f.write(dumps(group_ids))
+    return "Done"
 
 
-def test_start_notify(args, group_ids):
+def test_start_notify(args):
     if GALLOPER_URL:
         lg_type = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
-        exec_params = args.execution_params[0]['cmd']
+        exec_params = args.execution_params[0]['cmd'] + " "
         test_type = re.findall('-Jtest.type=(.+?) ', exec_params)
         test_type = test_type[0] if len(test_type) else 'demo'
         test_name = re.findall("-Jtest_name=(.+?) ", exec_params)
@@ -226,13 +231,13 @@ def test_start_notify(args, group_ids):
         duration = re.findall("-JDURATION=(.+?) ", exec_params)
         duration = float(duration[0]) if len(duration) else 0
         vusers = re.findall("-JVUSERS=(.+?) ", exec_params)
-        vusers = int(vusers[0] * args.concurrency[0]) if len(vusers) else 0
+        vusers = int(vusers[0]) * args.concurrency[0] if len(vusers) else 0
         environment = re.findall("-Jenv.type=(.+?) ", exec_params)
         environment = environment[0] if len(environment) else 'demo'
         start_time = datetime.utcnow().isoformat("T") + "Z"
         data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
                 'duration': duration, 'vusers': vusers, 'environment': environment, 'start_time': start_time,
-                'missed': 0, "group_ids": group_ids}
+                'missed': 0}
         if release_id:
             data['release_id'] = release_id
         headers = {'content-type': 'application/json'}
@@ -252,29 +257,29 @@ def check_ready(result):
 
 
 def track_job(args=None, group_id=None, retry=True):
-    if not args:
-        args = parse_id()
-    if not group_id:
-        group_id = args.groupid
-    for id in group_id:
-        group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
-        group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
-    while not all(check_ready(group_id[id]['result']) for id in group_id):
-        sleep(30)
-        print("Still processing ... ")
-    if all(check_ready(group_id[id]['result']) for id in group_id):
-        print("We are done successfully")
-    else:
-        print("We are failed badly")
-        if retry:
-            print(f"Retry for GroupID: {group_id}")
-            return track_job(group_id=group_id, retry=False)
-        else:
-            return "Failed"
-    for id in group_id:
-        print(group_id)
-        for each in group_id[id]['result'].get():
-            print(each)
+    # if not args:
+    #     args = parse_id()
+    # if not group_id:
+    #     group_id = args.groupid
+    # for id in group_id:
+    #     group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
+    #     group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
+    # while not all(check_ready(group_id[id]['result']) for id in group_id):
+    #     sleep(30)
+    #     print("Still processing ... ")
+    # if all(check_ready(group_id[id]['result']) for id in group_id):
+    #     print("We are done successfully")
+    # else:
+    #     print("We are failed badly")
+    #     if retry:
+    #         print(f"Retry for GroupID: {group_id}")
+    #         return track_job(group_id=group_id, retry=False)
+    #     else:
+    #         return "Failed"
+    # for id in group_id:
+    #     print(group_id)
+    #     for each in group_id[id]['result'].get():
+    #         print(each)
 
     return "Done"
 
@@ -293,49 +298,49 @@ def start_and_track(args=None):
 
 
 def kill_job(args=None, group_id=None):
-    if not args:
-        args = parse_id()
-    if not group_id:
-        group_id = args.groupid
-    if not group_id:
-        with open("/tmp/_taskid", "r") as f:
-            group_id = loads(f.read().strip())
-    for id in group_id:
-        group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
-        group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
-        group_id[id]['task_id'] = []
-        if not group_id[id]['result'].ready():
-            abortable_result = []
-            for task in group_id[id]['result'].children:
-                group_id[id]['task_id'].append(task.id)
-                abortable_id = AbortableAsyncResult(id=task.id, parent=group_id[id]['result'].id,
-                                                    app=group_id[id]['app'])
-                abortable_id.abort()
-                abortable_result.append(abortable_id)
-            if abortable_result:
-                while not all(res.result for res in abortable_result):
-                    sleep(5)
-                    print("Aborting distributed tasks ... ")
-    print("Group aborted ...")
-    print("Verifying that tasks aborted as well ... ")
-    # This process is to handle a case when parent is canceled, but child have not
-    for id in group_id:
-        i = inspect(app=group_id[id]['app'])
-        tasks_list = []
-        for tasks in [i.active(), i.scheduled(), i.reserved()]:
-            for node in tasks:
-                if tasks[node]:
-                    tasks_list.append(task['id'] for task in tasks[node])
-        abortable_result = []
-        for task_id in group_id[id]['task_id']:
-            if task_id in tasks_list:
-                abortable_id = AbortableAsyncResult(id=task_id, app=group_id[id]['app'])
-                abortable_id.abort()
-                abortable_result.append(abortable_id)
-        if abortable_result:
-            while not all(res.result for res in abortable_result):
-                sleep(5)
-                print("Aborting distributed tasks ... ")
+    # if not args:
+    #     args = parse_id()
+    # if not group_id:
+    #     group_id = args.groupid
+    # if not group_id:
+    #     with open("/tmp/_taskid", "r") as f:
+    #         group_id = loads(f.read().strip())
+    # for id in group_id:
+    #     group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
+    #     group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
+    #     group_id[id]['task_id'] = []
+    #     if not group_id[id]['result'].ready():
+    #         abortable_result = []
+    #         for task in group_id[id]['result'].children:
+    #             group_id[id]['task_id'].append(task.id)
+    #             abortable_id = AbortableAsyncResult(id=task.id, parent=group_id[id]['result'].id,
+    #                                                 app=group_id[id]['app'])
+    #             abortable_id.abort()
+    #             abortable_result.append(abortable_id)
+    #         if abortable_result:
+    #             while not all(res.result for res in abortable_result):
+    #                 sleep(5)
+    #                 print("Aborting distributed tasks ... ")
+    # print("Group aborted ...")
+    # print("Verifying that tasks aborted as well ... ")
+    # # This process is to handle a case when parent is canceled, but child have not
+    # for id in group_id:
+    #     i = inspect(app=group_id[id]['app'])
+    #     tasks_list = []
+    #     for tasks in [i.active(), i.scheduled(), i.reserved()]:
+    #         for node in tasks:
+    #             if tasks[node]:
+    #                 tasks_list.append(task['id'] for task in tasks[node])
+    #     abortable_result = []
+    #     for task_id in group_id[id]['task_id']:
+    #         if task_id in tasks_list:
+    #             abortable_id = AbortableAsyncResult(id=task_id, app=group_id[id]['app'])
+    #             abortable_id.abort()
+    #             abortable_result.append(abortable_id)
+    #     if abortable_result:
+    #         while not all(res.result for res in abortable_result):
+    #             sleep(5)
+    #             print("Aborting distributed tasks ... ")
     exit(0)
 
 
