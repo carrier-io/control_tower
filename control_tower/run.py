@@ -201,15 +201,19 @@ def start_job(args=None):
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
     groups = []
+    apps = []
     for each in celery_connection_cluster:
         task_group = chord(celery_connection_cluster[each]['tasks'],
                            app=celery_connection_cluster[each]['app'])(
             celery_connection_cluster[each]['post_processor'])
         groups.append(task_group)
+        apps.append(celery_connection_cluster[each]['app'])
 
-    test_start_notify(args)
-    for group in groups:
-        group.get()
+    duration = test_start_notify(args) + 60
+    for each in range(0, len(groups)):
+        wait_results(apps[each], groups[each], duration, 5)
+
+
     #     group_id = task_group.apply_async()
     #     group_id.save()
     #     group_ids[each] = {"group_id": group_id.id}
@@ -218,6 +222,19 @@ def start_job(args=None):
     # with open('/tmp/_taskid', 'w') as f:
     #     f.write(dumps(group_ids))
     return "Done"
+
+
+def wait_results(app, group, duration, count):
+    try:
+        group.get(timeout=duration)
+    except:
+        print("timeout")
+        active = sum(len(value) for key, value in app.control.inspect().active().items())
+        if active == 0:
+            return
+        count -= 1
+        if count != 0:
+            wait_results(app, group, 60, count)
 
 
 def test_start_notify(args):
@@ -243,6 +260,9 @@ def test_start_notify(args):
         headers = {'content-type': 'application/json'}
         r = requests.post(f'{GALLOPER_URL}/api/report', json=data, headers=headers)
         print(r.text)
+        if duration == 0:
+            duration = 3600
+        return int(duration)
 
 
 def start_job_exec(args=None):
