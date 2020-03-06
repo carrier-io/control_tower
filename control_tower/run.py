@@ -211,7 +211,7 @@ def start_job(args=None):
 
     duration = test_start_notify(args) + 60
     for each in range(0, len(groups)):
-        wait_results(apps[each], groups[each], duration, 3)
+        wait_results(apps[each], groups[each], duration, 5)
 
 
     #     group_id = task_group.apply_async()
