@@ -202,39 +202,14 @@ def start_job(args=None):
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
+    groups = []
     for each in celery_connection_cluster:
         task_group = chord(celery_connection_cluster[each]['tasks'],
                            app=celery_connection_cluster[each]['app'])(
             celery_connection_cluster[each]['post_processor'])
-        celery_connection_cluster[each]["group"] = task_group
+        groups.append(task_group)
 
-    print("Job started, waiting for containers to settle ... ")
-    duration = test_start_notify(args) + 60
-    for each in celery_connection_cluster:
-        celery_connection_cluster[each]["app"] = wait_results(each, celery_connection_cluster[each]["app"], celery_connection_cluster[each]["group"], duration, 5)
-
-    if args.junit:
-        file_name = "junit_report_{}.xml".format(DISTRIBUTED_MODE_PREFIX)
-        junit_report = download_junit_report(results_bucket, file_name, retry=12)
-        if junit_report:
-            with open("/tmp/reports/{}".format(file_name), "w") as f:
-                f.write(junit_report.text)
-
-            failed = int(re.findall("testsuites .+? failures=\"(.+?)\"", junit_report.text)[0])
-            total = int(re.findall("testsuites .+? tests=\"(.+?)\"", junit_report.text)[0])
-            errors = int(re.findall("testsuites .+? errors=\"(.+?)\"", junit_report.text)[0])
-            skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", junit_report.text)[0])
-            print("**********************************************")
-            print("* Performance testing jUnit report | Carrier *")
-            print("**********************************************")
-            print(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
-            if args.quality_gate:
-                rate = round(float(failed / total) * 100, 2) if total != 0 else 0
-                if rate > 20:
-                    print("Missed threshold rate is {}".format(rate), file=sys.stderr)
-                    exit(1)
-
-
+    test_start_notify(args)
     #     group_id = task_group.apply_async()
     #     group_id.save()
     #     group_ids[each] = {"group_id": group_id.id}
@@ -242,37 +217,7 @@ def start_job(args=None):
 
     # with open('/tmp/_taskid', 'w') as f:
     #     f.write(dumps(group_ids))
-    return "Done"
-
-
-def download_junit_report(results_bucket, file_name, retry):
-    junit_report = requests.get(f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}', allow_redirects=True)
-    if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
-        retry -= 1
-        if retry == 0:
-            return None
-        sleep(10)
-        return download_junit_report(results_bucket, file_name, retry)
-    return junit_report
-
-
-def wait_results(db_id, app, group, duration, count):
-    try:
-        group.get(timeout=duration)
-    except TimeoutError:
-        print("timeout")
-        try:
-            active = sum(len(value) for key, value in app.control.inspect().active().items())
-        except AttributeError:
-            app = connect_to_celery(None, db_id)
-            active = sum(len(value) for key, value in app.control.inspect().active().items())
-        if active == 0:
-            return
-        count -= 1
-        if count != 0:
-            return wait_results(db_id, app, group, 60, count)
-    finally:
-        return app
+    return groups
 
 
 def test_start_notify(args):
@@ -298,9 +243,6 @@ def test_start_notify(args):
         headers = {'content-type': 'application/json'}
         r = requests.post(f'{GALLOPER_URL}/api/report', json=data, headers=headers)
         print(r.text)
-        if duration == 0:
-            duration = 3600
-        return int(duration)
 
 
 def start_job_exec(args=None):
@@ -314,7 +256,16 @@ def check_ready(result):
     return True
 
 
-def track_job(args=None, group_id=None, retry=True):
+# TODO check for lost connection and retry
+def track_job(group):
+    while not group.ready():
+        sleep(30)
+        print("Still processing ... ")
+    if group.successful():
+        print("We are done successfully")
+    else:
+        print("We are failed badly")
+    group.forget()
     # if not args:
     #     args = parse_id()
     # if not group_id:
@@ -348,11 +299,50 @@ def track_job_exec(args=None):
 
 
 def start_and_track(args=None):
-    group_id = start_job(args)
-    # print("Job started, waiting for containers to settle ... ")
-    # sleep(60)
-    # track_job(group_id=group_id)
+    if not args:
+        args = arg_parse()
+    groups = start_job(args)
+    print("Job started, waiting for containers to settle ... ")
+    for group in groups:
+        track_job(group)
+    if args.junit:
+        process_junit_report(args)
     exit(0)
+
+
+def process_junit_report(args):
+    file_name = "junit_report_{}.xml".format(DISTRIBUTED_MODE_PREFIX)
+    results_bucket = str(args.job_name).replace("_", "").lower()
+    junit_report = download_junit_report(results_bucket, file_name, retry=12)
+    if junit_report:
+        with open("/tmp/reports/{}".format(file_name), "w") as f:
+            f.write(junit_report.text)
+
+        failed = int(re.findall("testsuites .+? failures=\"(.+?)\"", junit_report.text)[0])
+        total = int(re.findall("testsuites .+? tests=\"(.+?)\"", junit_report.text)[0])
+        errors = int(re.findall("testsuites .+? errors=\"(.+?)\"", junit_report.text)[0])
+        skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", junit_report.text)[0])
+        print("**********************************************")
+        print("* Performance testing jUnit report | Carrier *")
+        print("**********************************************")
+        print(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
+        if args.quality_gate:
+            rate = round(float(failed / total) * 100, 2) if total != 0 else 0
+            if rate > 20:
+                print("Missed threshold rate is {}".format(rate), file=sys.stderr)
+                exit(1)
+
+
+def download_junit_report(results_bucket, file_name, retry):
+    junit_report = requests.get(f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}', allow_redirects=True)
+    if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
+        print("retry download")
+        retry -= 1
+        if retry == 0:
+            return None
+        sleep(10)
+        return download_junit_report(results_bucket, file_name, retry)
+    return junit_report
 
 
 def kill_job(args=None, group_id=None):
