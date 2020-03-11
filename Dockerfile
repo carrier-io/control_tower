@@ -12,7 +12,7 @@ COPY control_tower /tmp/control_tower
 
 RUN cd /tmp && mkdir /tmp/reports && python setup.py install && \
     rm -rf /tmp/control_tower /tmp/requirements.txt /tmp/setup.py
-
+ENV PYTHONUNBUFFERED=1
 ADD run.sh /bin/run.sh
 RUN chmod +x /bin/run.sh
 COPY config.yaml /tmp/
