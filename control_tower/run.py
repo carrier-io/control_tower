@@ -18,14 +18,13 @@ from copy import deepcopy
 from json import loads, dumps
 from os import environ, path
 from celery import Celery, chord
-from celery.result import GroupResult
-from celery.contrib.abortable import AbortableAsyncResult
-from celery.task.control import inspect
 from time import sleep
 from uuid import uuid4
-import requests
 import re
 from datetime import datetime
+import requests
+import sys
+from celery.exceptions import TimeoutError
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
@@ -90,6 +89,8 @@ def arg_parse():
     parser.add_argument('-a', '--artifact', action="append", default="", type=str)
     parser.add_argument('-b', '--bucket', action="append", default="", type=str)
     parser.add_argument('-sr', '--save_reports', action="append", default=None, type=str)
+    parser.add_argument('-j', '--junit', default=False, type=str2bool)
+    parser.add_argument('-qg', '--quality_gate', default=False, type=str2bool)
     args, _ = parser.parse_known_args()
     return args
 
@@ -151,7 +152,8 @@ def start_job(args=None):
         "galloper_url": GALLOPER_URL,
         "galloper_web_hook": GALLOPER_WEB_HOOK,
         "bucket": results_bucket,
-        "prefix": DISTRIBUTED_MODE_PREFIX
+        "prefix": DISTRIBUTED_MODE_PREFIX,
+        "junit": args.junit
     }
     for channel in channels:
         if str(channel) not in celery_connection_cluster:
@@ -200,18 +202,37 @@ def start_job(args=None):
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
-    groups = []
-    apps = []
     for each in celery_connection_cluster:
         task_group = chord(celery_connection_cluster[each]['tasks'],
                            app=celery_connection_cluster[each]['app'])(
             celery_connection_cluster[each]['post_processor'])
-        groups.append(task_group)
-        apps.append(celery_connection_cluster[each]['app'])
+        celery_connection_cluster[each]["group"] = task_group
 
+    print("Job started, waiting for containers to settle ... ")
     duration = test_start_notify(args) + 60
-    for each in range(0, len(groups)):
-        wait_results(apps[each], groups[each], duration, 5)
+    for each in celery_connection_cluster:
+        celery_connection_cluster[each]["app"] = wait_results(each, celery_connection_cluster[each]["app"], celery_connection_cluster[each]["group"], duration, 5)
+
+    if args.junit:
+        file_name = "junit_report_{}.xml".format(DISTRIBUTED_MODE_PREFIX)
+        junit_report = download_junit_report(results_bucket, file_name, retry=12)
+        if junit_report:
+            with open("/tmp/reports/{}".format(file_name), "w") as f:
+                f.write(junit_report.text)
+
+            failed = int(re.findall("testsuites .+? failures=\"(.+?)\"", junit_report.text)[0])
+            total = int(re.findall("testsuites .+? tests=\"(.+?)\"", junit_report.text)[0])
+            errors = int(re.findall("testsuites .+? errors=\"(.+?)\"", junit_report.text)[0])
+            skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", junit_report.text)[0])
+            print("**********************************************")
+            print("* Performance testing jUnit report | Carrier *")
+            print("**********************************************")
+            print(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
+            if args.quality_gate:
+                rate = round(float(failed / total) * 100, 2) if total != 0 else 0
+                if rate > 20:
+                    print("Missed threshold rate is {}".format(rate), file=sys.stderr)
+                    exit(1)
 
 
     #     group_id = task_group.apply_async()
@@ -224,17 +245,34 @@ def start_job(args=None):
     return "Done"
 
 
-def wait_results(app, group, duration, count):
+def download_junit_report(results_bucket, file_name, retry):
+    junit_report = requests.get(f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}', allow_redirects=True)
+    if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
+        retry -= 1
+        if retry == 0:
+            return None
+        sleep(10)
+        return download_junit_report(results_bucket, file_name, retry)
+    return junit_report
+
+
+def wait_results(db_id, app, group, duration, count):
     try:
         group.get(timeout=duration)
-    except:
+    except TimeoutError:
         print("timeout")
-        active = sum(len(value) for key, value in app.control.inspect().active().items())
+        try:
+            active = sum(len(value) for key, value in app.control.inspect().active().items())
+        except AttributeError:
+            app = connect_to_celery(None, db_id)
+            active = sum(len(value) for key, value in app.control.inspect().active().items())
         if active == 0:
             return
         count -= 1
         if count != 0:
-            wait_results(app, group, 60, count)
+            return wait_results(db_id, app, group, 60, count)
+    finally:
+        return app
 
 
 def test_start_notify(args):
@@ -311,9 +349,9 @@ def track_job_exec(args=None):
 
 def start_and_track(args=None):
     group_id = start_job(args)
-    print("Job started, waiting for containers to settle ... ")
-    sleep(60)
-    track_job(group_id=group_id)
+    # print("Job started, waiting for containers to settle ... ")
+    # sleep(60)
+    # track_job(group_id=group_id)
     exit(0)
 
 
