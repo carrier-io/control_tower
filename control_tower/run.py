@@ -336,7 +336,6 @@ def process_junit_report(args):
 def download_junit_report(results_bucket, file_name, retry):
     junit_report = requests.get(f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}', allow_redirects=True)
     if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
-        print("retry download")
         retry -= 1
         if retry == 0:
             return None
