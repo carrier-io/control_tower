@@ -90,6 +90,7 @@ def arg_parse():
     parser.add_argument('-sr', '--save_reports', action="append", default=None, type=str)
     parser.add_argument('-j', '--junit', default=False, type=str2bool)
     parser.add_argument('-qg', '--quality_gate', default=False, type=str2bool)
+    parser.add_argument('-p', '--report_path', default="/tmp/reports", type=str)
     args, _ = parser.parse_known_args()
     return args
 
@@ -339,7 +340,7 @@ def process_junit_report(args):
     results_bucket = str(args.job_name).replace("_", "").lower()
     junit_report = download_junit_report(results_bucket, file_name, retry=12)
     if junit_report:
-        with open("/tmp/reports/{}".format(file_name), "w") as f:
+        with open("{}/{}".format(args.report_path, file_name), "w") as f:
             f.write(junit_report.text)
 
         failed = int(re.findall("testsuites .+? failures=\"(.+?)\"", junit_report.text)[0])
