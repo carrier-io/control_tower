@@ -34,6 +34,7 @@ GALLOPER_WEB_HOOK = environ.get('GALLOPER_WEB_HOOK', None)
 LOKI_HOST = environ.get('loki_host', None)
 LOKI_PORT = environ.get('loki_port', '3100')
 GALLOPER_URL = environ.get('galloper_url', None)
+PROJECT_ID = environ.get('project_id', None)
 BUCKET = environ.get('bucket', None)
 TEST = environ.get('artifact', None)
 ADDITIONAL_FILES = environ.get('additional_files', None)
@@ -150,6 +151,7 @@ def start_job(args=None):
     results_bucket = str(args.job_name).replace("_", "").lower()
     post_processor_args = {
         "galloper_url": GALLOPER_URL,
+        "project_id": PROJECT_ID,
         "galloper_web_hook": GALLOPER_WEB_HOOK,
         "bucket": results_bucket,
         "prefix": DISTRIBUTED_MODE_PREFIX,
@@ -266,7 +268,11 @@ def test_start_notify(args):
         if release_id:
             data['release_id'] = release_id
         headers = {'content-type': 'application/json'}
-        r = requests.post(f'{GALLOPER_URL}/api/report', json=data, headers=headers)
+        if PROJECT_ID:
+            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}'
+        else:
+            url = f'{GALLOPER_URL}/api/report'
+        r = requests.post(url, json=data, headers=headers)
         print(r.text)
 
 
