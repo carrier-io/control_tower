@@ -197,6 +197,8 @@ def start_job(args=None):
             exec_params['artifact'] = TEST if not args.artifact else args.artifact[i]
             exec_params['results_bucket'] = results_bucket
             exec_params['save_reports'] = args.save_reports
+            if PROJECT_ID:
+                exec_params['project_id'] = PROJECT_ID
 
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
@@ -365,7 +367,11 @@ def process_junit_report(args):
 
 
 def download_junit_report(results_bucket, file_name, retry):
-    junit_report = requests.get(f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}', allow_redirects=True)
+    if PROJECT_ID:
+        url = f'{GALLOPER_URL}/api/v1/artifacts/{PROJECT_ID}/{results_bucket}/{file_name}'
+    else:
+        url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
+    junit_report = requests.get(url, allow_redirects=True)
     if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         retry -= 1
         if retry == 0:
