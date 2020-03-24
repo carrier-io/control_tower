@@ -86,8 +86,8 @@ def arg_parse():
                         help="Number of parallel workers to run the job")
     parser.add_argument('-r', '--channel', action="append", default=[], type=int,
                         help="Number of parallel workers to run the job")
-    parser.add_argument('-a', '--artifact', action="append", default="", type=str)
-    parser.add_argument('-b', '--bucket', action="append", default="", type=str)
+    parser.add_argument('-a', '--artifact', default="", type=str)
+    parser.add_argument('-b', '--bucket', default="", type=str)
     parser.add_argument('-sr', '--save_reports', action="append", default=None, type=str)
     parser.add_argument('-j', '--junit', default=False, type=str2bool)
     parser.add_argument('-qg', '--quality_gate', default=False, type=str2bool)
