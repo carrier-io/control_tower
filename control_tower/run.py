@@ -197,6 +197,8 @@ def start_job(args=None):
             exec_params['artifact'] = TEST if not args.artifact else args.artifact[i]
             exec_params['results_bucket'] = results_bucket
             exec_params['save_reports'] = args.save_reports
+            if PROJECT_ID:
+                exec_params['project_id'] = PROJECT_ID
 
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
