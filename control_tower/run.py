@@ -41,8 +41,7 @@ ADDITIONAL_FILES = environ.get('additional_files', None)
 BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
 DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
 JVM_ARGS = environ.get('JVM_ARGS', None)
-mount_source = environ.get('mount_source', None)
-mount_target = environ.get('mount_target', None)
+mounts = environ.get('mounts', None)
 release_id = environ.get('release_id', None)
 app = None
 JOB_TYPE_MAPPING = {
@@ -170,7 +169,8 @@ def start_job(args=None):
         if 'tasks' not in celery_connection_cluster[str(channels[i])]:
             celery_connection_cluster[str(channels[i])]['tasks'] = []
         exec_params = deepcopy(args.execution_params[i])
-
+        if mounts:
+            exec_params['mounts'] = mounts
         if args.job_type[i] in ['perfgun', 'perfmeter']:
             if path.exists('/tmp/config.yaml'):
                 with open('/tmp/config.yaml', 'r') as f:
@@ -185,10 +185,6 @@ def start_job(args=None):
                 exec_params['additional_files'] = ADDITIONAL_FILES
             if JVM_ARGS:
                 exec_params['JVM_ARGS'] = JVM_ARGS
-            if mount_source:
-                exec_params['mount_source'] = mount_source
-            if mount_target:
-                exec_params['mount_target'] = mount_target
 
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
