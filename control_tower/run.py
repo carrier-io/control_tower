@@ -274,8 +274,10 @@ def test_start_notify(args):
             url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}'
         else:
             url = f'{GALLOPER_URL}/api/report'
-        r = requests.post(url, json=data, headers=headers)
-        print(r.text)
+        response = requests.post(url, json=data, headers=headers)
+        print(response.text)
+        if response.status_code == requests.codes.forbidden:
+            exit(126)
 
 
 def start_job_exec(args=None):
