@@ -41,6 +41,7 @@ ADDITIONAL_FILES = environ.get('additional_files', None)
 BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
 DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
 JVM_ARGS = environ.get('JVM_ARGS', None)
+TOKEN = environ.get('OAToken', None)
 mounts = environ.get('mounts', None)
 release_id = environ.get('release_id', None)
 app = None
@@ -158,7 +159,8 @@ def start_job(args=None):
         "galloper_web_hook": GALLOPER_WEB_HOOK,
         "bucket": results_bucket,
         "prefix": DISTRIBUTED_MODE_PREFIX,
-        "junit": args.junit
+        "junit": args.junit,
+        "token": TOKEN
     }
     for channel in channels:
         if str(channel) not in celery_connection_cluster:
@@ -199,6 +201,8 @@ def start_job(args=None):
             exec_params['save_reports'] = args.save_reports
             if PROJECT_ID:
                 exec_params['project_id'] = PROJECT_ID
+            if TOKEN:
+                exec_params['token'] = TOKEN
 
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
@@ -269,7 +273,10 @@ def test_start_notify(args):
                 'missed': 0}
         if release_id:
             data['release_id'] = release_id
+
         headers = {'content-type': 'application/json'}
+        if TOKEN:
+            headers['Authorization'] = f'bearer {TOKEN}'
         if PROJECT_ID:
             url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}'
         else:
@@ -371,7 +378,8 @@ def download_junit_report(results_bucket, file_name, retry):
         url = f'{GALLOPER_URL}/api/v1/artifacts/{PROJECT_ID}/{results_bucket}/{file_name}'
     else:
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
-    junit_report = requests.get(url, allow_redirects=True)
+    headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
+    junit_report = requests.get(url, headers=headers, allow_redirects=True)
     if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         retry -= 1
         if retry == 0:
