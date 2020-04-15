@@ -18,6 +18,7 @@ from copy import deepcopy
 from json import loads, dumps
 from os import environ, path
 from celery import Celery, chord
+from celery.contrib.abortable import AbortableAsyncResult
 from time import sleep
 from uuid import uuid4
 import re
@@ -45,6 +46,10 @@ TOKEN = environ.get('OAToken', None)
 mounts = environ.get('mounts', None)
 release_id = environ.get('release_id', None)
 app = None
+SAMPLER = environ.get('sampler', "REQUEST")
+REQUEST = environ.get('request', "All")
+CALCULATION_DELAY = environ.get('data_wait', 300)
+KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
@@ -113,15 +118,13 @@ def parse_id():
 
 
 def connect_to_celery(concurrency, redis_db=None, retry=5):
-    # global app
     if not (redis_db and isinstance(redis_db, int)):
         redis_db = REDIS_DB
-    # if not app or redis_db not in app:
     app = Celery('CarrierExecutor',
                  broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  include=['celery'])
-    print(f"Celery Status: {dumps(app.control.inspect().stats(), indent=2)}")
+    # print(f"Celery Status: {dumps(app.control.inspect().stats(), indent=2)}")
     if not app.control.inspect().stats() and retry != 0:
         print("retry")
         retry -= 1
@@ -212,20 +215,11 @@ def start_job(args=None):
 
     groups = []
     for each in celery_connection_cluster:
-        task_group = chord(celery_connection_cluster[each]['tasks'],
-                           app=celery_connection_cluster[each]['app'])(
+        task_group = chord(
+            celery_connection_cluster[each]['tasks'], app=celery_connection_cluster[each]['app'])(
             celery_connection_cluster[each]['post_processor'])
         groups.append(task_group)
-
-    test_start_notify(args)
-    #     group_id = task_group.apply_async()
-    #     group_id.save()
-    #     group_ids[each] = {"group_id": group_id.id}
-    # print(f"Group IDs: {dumps(group_ids)}")
-
-    # with open('/tmp/_taskid', 'w') as f:
-    #     f.write(dumps(group_ids))
-    return groups
+    return groups, test_start_notify(args)
 
 
 def test_start_notify(args):
@@ -281,8 +275,8 @@ def test_start_notify(args):
             url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}'
         else:
             url = f'{GALLOPER_URL}/api/report'
-        r = requests.post(url, json=data, headers=headers)
-        print(r.text)
+        return requests.post(url, json=data, headers=headers).json()
+    return {}
 
 
 def start_job_exec(args=None):
@@ -296,57 +290,55 @@ def check_ready(result):
     return True
 
 
+def check_test_is_saturating(test_id=None):
+    if test_id and PROJECT_ID and SAMPLER and REQUEST:
+        url = f'{GALLOPER_URL}/api/v1/saturation'
+        headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
+        headers["Content-type"] = "application/json"
+        params = {
+            "test_id": test_id,
+            "project_id": PROJECT_ID,
+            "sampler": SAMPLER,
+            "request": REQUEST,
+            "max_dellay": CALCULATION_DELAY
+        }
+        return requests.get(url, params=params, headers=headers).json()
+    return {"message": "Test is in progress", "code": 0}
+
+
 # TODO check for lost connection and retry
-def track_job(group):
+def track_job(group, test_id=None):
+    result = 0
     while not group.ready():
         sleep(30)
-        print("Still processing ... ")
+        test_status = check_test_is_saturating(test_id)
+        print(test_status)
+        kill_job(group)
+        result = 1
+        if test_status.get("code", 0) == 1:
+            kill_job(group)
+            result = 1
     if group.successful():
         print("We are done successfully")
     else:
         print("We are failed badly")
     group.forget()
-    # if not args:
-    #     args = parse_id()
-    # if not group_id:
-    #     group_id = args.groupid
-    # for id in group_id:
-    #     group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
-    #     group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
-    # while not all(check_ready(group_id[id]['result']) for id in group_id):
-    #     sleep(30)
-    #     print("Still processing ... ")
-    # if all(check_ready(group_id[id]['result']) for id in group_id):
-    #     print("We are done successfully")
-    # else:
-    #     print("We are failed badly")
-    #     if retry:
-    #         print(f"Retry for GroupID: {group_id}")
-    #         return track_job(group_id=group_id, retry=False)
-    #     else:
-    #         return "Failed"
-    # for id in group_id:
-    #     print(group_id)
-    #     for each in group_id[id]['result'].get():
-    #         print(each)
-
-    return "Done"
+    return result
 
 
-def track_job_exec(args=None):
-    track_job(args)
-    exit(0)
+def _start_and_track(args=None):
+    if not args:
+        args = arg_parse()
+    groups, test_details = start_job(args)
+    print("Job started, waiting for containers to settle ... ")
+    for group in groups:
+        track_job(group, test_details.get("id", None))
+    if args.junit:
+        process_junit_report(args)
 
 
 def start_and_track(args=None):
-    if not args:
-        args = arg_parse()
-    groups = start_job(args)
-    print("Job started, waiting for containers to settle ... ")
-    for group in groups:
-        track_job(group)
-    if args.junit:
-        process_junit_report(args)
+    _start_and_track(args)
     exit(0)
 
 
@@ -389,60 +381,33 @@ def download_junit_report(results_bucket, file_name, retry):
     return junit_report
 
 
-def kill_job(args=None, group_id=None):
-    # if not args:
-    #     args = parse_id()
-    # if not group_id:
-    #     group_id = args.groupid
-    # if not group_id:
-    #     with open("/tmp/_taskid", "r") as f:
-    #         group_id = loads(f.read().strip())
-    # for id in group_id:
-    #     group_id[id]['app'] = connect_to_celery(0, redis_db=int(id))
-    #     group_id[id]['result'] = GroupResult.restore(group_id[id]['group_id'], app=group_id[id]['app'])
-    #     group_id[id]['task_id'] = []
-    #     if not group_id[id]['result'].ready():
-    #         abortable_result = []
-    #         for task in group_id[id]['result'].children:
-    #             group_id[id]['task_id'].append(task.id)
-    #             abortable_id = AbortableAsyncResult(id=task.id, parent=group_id[id]['result'].id,
-    #                                                 app=group_id[id]['app'])
-    #             abortable_id.abort()
-    #             abortable_result.append(abortable_id)
-    #         if abortable_result:
-    #             while not all(res.result for res in abortable_result):
-    #                 sleep(5)
-    #                 print("Aborting distributed tasks ... ")
-    # print("Group aborted ...")
-    # print("Verifying that tasks aborted as well ... ")
-    # # This process is to handle a case when parent is canceled, but child have not
-    # for id in group_id:
-    #     i = inspect(app=group_id[id]['app'])
-    #     tasks_list = []
-    #     for tasks in [i.active(), i.scheduled(), i.reserved()]:
-    #         for node in tasks:
-    #             if tasks[node]:
-    #                 tasks_list.append(task['id'] for task in tasks[node])
-    #     abortable_result = []
-    #     for task_id in group_id[id]['task_id']:
-    #         if task_id in tasks_list:
-    #             abortable_id = AbortableAsyncResult(id=task_id, app=group_id[id]['app'])
-    #             abortable_id.abort()
-    #             abortable_result.append(abortable_id)
-    #     if abortable_result:
-    #         while not all(res.result for res in abortable_result):
-    #             sleep(5)
-    #             print("Aborting distributed tasks ... ")
-    exit(0)
+def kill_job(group):
+    abbortables = []
+    _app = group.app
+    if not group.ready():
+        for task in group.parent.children:
+            abortable = AbortableAsyncResult(id=task.task_id, app=_app)
+            abortable.abort()
+            abbortables.append(abortable)
+    for _ in range(KILL_MAX_WAIT_TIME):
+        if all(task.result for task in abbortables):
+            break
+        sleep(60)
+        print("Aborting distributed tasks ... ")
+    return 0
 
 
 # if __name__ == "__main__":
 #     from control_tower.config_mock import BulkConfig
-#     start_and_track(args=BulkConfig())
-#     # group_id = start_job(config)
-#     # print(group_id)
-#     # track_job(group_id=group_id)
-#     # kill_job(config)
-#     # track_job(group_id='73331467-20ee-4d53-a570-6cd0296779aa')
-#     pass
-
+#     args = BulkConfig(
+#         bulk_container=["getcarrier/perfmeter:latest"],
+#         bulk_params=[{"cmd": "-n -t /mnt/jmeter/FloodIO.jmx -Jtest.type=debug -Jenv.type=debug "
+#                              "-Jinflux.host= -JVUSERS=100 -JDURATION=1200 "
+#                              "-JRAMP_UP=60 -Jtest_name=Flood"}],
+#         job_type=["perfmeter"],
+#         job_name='DemoTest',
+#         bulk_concurrency=[2]
+#     )
+#     groups, test_details, post_processor_args = start_job(args)
+#     for group in groups:
+#         track_job(group, test_details["id"])

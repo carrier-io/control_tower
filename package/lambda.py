@@ -53,13 +53,8 @@ def handler(event=None, context=None):
     try:
         os.mkdir('/tmp/reports')
         args = parse_args(event)
-        from control_tower.run import start_job, track_job, process_junit_report
-        groups = start_job(args)
-        print("Job started, waiting for containers to settle ... ")
-        for group in groups:
-            track_job(group)
-        if args.junit:
-            process_junit_report(args)
+        from control_tower.run import _start_and_track
+        _start_and_track(args)
         return {
             'statusCode': 200,
             'body': "test is done"
@@ -69,16 +64,3 @@ def handler(event=None, context=None):
             'statusCode': 500,
             'body': format_exc()
         }
-
-
-# if __name__ == "__main__":
-#     event = [
-#         {
-#             "container": "getcarrier/perfmeter:latest",
-#             "execution_params": "{\"cmd\": \"-n -t /mnt/jmeter/FloodIO.jmx -Jbuild.id=distributed_1_1 -Jinflux.port=8086 -Jtest.type=distributed -Jinflux.db=jmeter -Jcomparison_db=comparison -Jenv.type=demo -Jinflux.host=192.168.1.193 -JVUSERS=10 -JDURATION=60 -JRAMP_UP=10 -Jtest_name=Flood\"}", \
-#             "job_type": "perfmeter",
-#             "job_name": "test",
-#             "bucket": "jmeter",
-#             "artifact": "Test.zip",
-#             "concurrency": 2}]
-#     print(handler(event))
