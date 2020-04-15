@@ -313,8 +313,6 @@ def track_job(group, test_id=None):
         sleep(30)
         test_status = check_test_is_saturating(test_id)
         print(test_status)
-        kill_job(group)
-        result = 1
         if test_status.get("code", 0) == 1:
             kill_job(group)
             result = 1
