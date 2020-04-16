@@ -213,13 +213,14 @@ def start_job(args=None):
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
+    test_details = test_start_notify(args)
     groups = []
     for each in celery_connection_cluster:
         task_group = chord(
             celery_connection_cluster[each]['tasks'], app=celery_connection_cluster[each]['app'])(
             celery_connection_cluster[each]['post_processor'])
         groups.append(task_group)
-    return groups, test_start_notify(args)
+    return groups, test_details
 
 
 def test_start_notify(args):
@@ -259,7 +260,7 @@ def test_start_notify(args):
                         vusers = int(vusers[0]) * args.concurrency[0]
                         break
         else:
-            return
+            return {}
         start_time = datetime.utcnow().isoformat("T") + "Z"
 
         data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
@@ -275,7 +276,12 @@ def test_start_notify(args):
             url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}'
         else:
             url = f'{GALLOPER_URL}/api/report'
-        return requests.post(url, json=data, headers=headers).json()
+
+        res = requests.post(url, json=data, headers=headers).json()
+        if res.get('Forbidden', None):
+            print(f"Forbidden: {res.get('Forbidden')}")
+            exit(0)
+        return res
     return {}
 
 
