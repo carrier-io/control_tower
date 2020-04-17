@@ -49,6 +49,8 @@ app = None
 SAMPLER = environ.get('sampler', "REQUEST")
 REQUEST = environ.get('request', "All")
 CALCULATION_DELAY = environ.get('data_wait', 300)
+CHECK_SATURATION = environ.get('check_saturation', None)
+MAX_ERRORS = environ.get('error_rate', 100)
 KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
@@ -213,13 +215,14 @@ def start_job(args=None):
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
+    test_details = test_start_notify(args)
     groups = []
     for each in celery_connection_cluster:
         task_group = chord(
             celery_connection_cluster[each]['tasks'], app=celery_connection_cluster[each]['app'])(
             celery_connection_cluster[each]['post_processor'])
         groups.append(task_group)
-    return groups, test_start_notify(args)
+    return groups, test_details
 
 
 def test_start_notify(args):
@@ -259,7 +262,7 @@ def test_start_notify(args):
                         vusers = int(vusers[0]) * args.concurrency[0]
                         break
         else:
-            return
+            return {}
         start_time = datetime.utcnow().isoformat("T") + "Z"
 
         data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
@@ -275,7 +278,12 @@ def test_start_notify(args):
             url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}'
         else:
             url = f'{GALLOPER_URL}/api/report'
-        return requests.post(url, json=data, headers=headers).json()
+
+        res = requests.post(url, json=data, headers=headers).json()
+        if res.get('Forbidden', None):
+            print(f"Forbidden: {res.get('Forbidden')}")
+            exit(0)
+        return res
     return {}
 
 
@@ -300,7 +308,8 @@ def check_test_is_saturating(test_id=None):
             "project_id": PROJECT_ID,
             "sampler": SAMPLER,
             "request": REQUEST,
-            "max_dellay": CALCULATION_DELAY
+            "wait_till": CALCULATION_DELAY,
+            "max_errors": MAX_ERRORS
         }
         return requests.get(url, params=params, headers=headers).json()
     return {"message": "Test is in progress", "code": 0}
@@ -310,12 +319,15 @@ def check_test_is_saturating(test_id=None):
 def track_job(group, test_id=None):
     result = 0
     while not group.ready():
-        sleep(30)
-        test_status = check_test_is_saturating(test_id)
-        print(test_status)
-        if test_status.get("code", 0) == 1:
-            kill_job(group)
-            result = 1
+        sleep(60)
+        if CHECK_SATURATION:
+            test_status = check_test_is_saturating(test_id)
+            print(test_status)
+            if test_status.get("code", 0) == 1:
+                kill_job(group)
+                result = 1
+        else:
+            print("Still processing ...")
     if group.successful():
         print("We are done successfully")
     else:
