@@ -49,6 +49,8 @@ app = None
 SAMPLER = environ.get('sampler', "REQUEST")
 REQUEST = environ.get('request', "All")
 CALCULATION_DELAY = environ.get('data_wait', 300)
+CHECK_SATURATION = environ.get('check_saturation', None)
+MAX_ERRORS = environ.get('error_rate', 100)
 KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
@@ -306,7 +308,8 @@ def check_test_is_saturating(test_id=None):
             "project_id": PROJECT_ID,
             "sampler": SAMPLER,
             "request": REQUEST,
-            "max_dellay": CALCULATION_DELAY
+            "wait_till": CALCULATION_DELAY,
+            "max_errors": MAX_ERRORS
         }
         return requests.get(url, params=params, headers=headers).json()
     return {"message": "Test is in progress", "code": 0}
@@ -316,12 +319,15 @@ def check_test_is_saturating(test_id=None):
 def track_job(group, test_id=None):
     result = 0
     while not group.ready():
-        sleep(30)
-        test_status = check_test_is_saturating(test_id)
-        print(test_status)
-        if test_status.get("code", 0) == 1:
-            kill_job(group)
-            result = 1
+        sleep(60)
+        if CHECK_SATURATION:
+            test_status = check_test_is_saturating(test_id)
+            print(test_status)
+            if test_status.get("code", 0) == 1:
+                kill_job(group)
+                result = 1
+        else:
+            print("Still processing ...")
     if group.successful():
         print("We are done successfully")
     else:
