@@ -51,6 +51,8 @@ REQUEST = environ.get('request', "All")
 CALCULATION_DELAY = environ.get('data_wait', 300)
 CHECK_SATURATION = environ.get('check_saturation', None)
 MAX_ERRORS = environ.get('error_rate', 100)
+DEVIATION = environ.get('dev', 0.02)
+MAX_DEVIATION = environ.get('max_dev', 0.05)
 KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
@@ -99,6 +101,8 @@ def arg_parse():
     parser.add_argument('-j', '--junit', default=False, type=str2bool)
     parser.add_argument('-qg', '--quality_gate', default=False, type=str2bool)
     parser.add_argument('-p', '--report_path', default="/tmp/reports", type=str)
+    parser.add_argument('-d', '--deviation', default=0, type=float)
+    parser.add_argument('-md', '--max_deviation', default=0, type=float)
     args, _ = parser.parse_known_args()
     return args
 
@@ -200,8 +204,8 @@ def start_job(args=None):
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
-            exec_params['bucket'] = BUCKET if not args.bucket else args.bucket[i]
-            exec_params['artifact'] = TEST if not args.artifact else args.artifact[i]
+            exec_params['bucket'] = BUCKET if not args.bucket else args.bucket
+            exec_params['artifact'] = TEST if not args.artifact else args.artifact
             exec_params['results_bucket'] = results_bucket
             exec_params['save_reports'] = args.save_reports
             if PROJECT_ID:
@@ -298,7 +302,7 @@ def check_ready(result):
     return True
 
 
-def check_test_is_saturating(test_id=None):
+def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
     if test_id and PROJECT_ID and SAMPLER and REQUEST:
         url = f'{GALLOPER_URL}/api/v1/saturation'
         headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
@@ -309,19 +313,21 @@ def check_test_is_saturating(test_id=None):
             "sampler": SAMPLER,
             "request": REQUEST,
             "wait_till": CALCULATION_DELAY,
-            "max_errors": MAX_ERRORS
+            "max_errors": MAX_ERRORS,
+            "deviation": deviation,
+            "max_deviation": max_deviation
         }
         return requests.get(url, params=params, headers=headers).json()
     return {"message": "Test is in progress", "code": 0}
 
 
 # TODO check for lost connection and retry
-def track_job(group, test_id=None):
+def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
     result = 0
     while not group.ready():
         sleep(60)
         if CHECK_SATURATION:
-            test_status = check_test_is_saturating(test_id)
+            test_status = check_test_is_saturating(test_id, deviation, max_deviation)
             print(test_status)
             if test_status.get("code", 0) == 1:
                 kill_job(group)
@@ -339,10 +345,12 @@ def track_job(group, test_id=None):
 def _start_and_track(args=None):
     if not args:
         args = arg_parse()
+    deviation = DEVIATION if args.deviation == 0 else args.deviation
+    max_deviation = MAX_DEVIATION if args.max_deviation == 0 else args.max_deviation
     groups, test_details = start_job(args)
     print("Job started, waiting for containers to settle ... ")
     for group in groups:
-        track_job(group, test_details.get("id", None))
+        track_job(group, test_details.get("id", None), deviation, max_deviation)
     if args.junit:
         process_junit_report(args)
 
