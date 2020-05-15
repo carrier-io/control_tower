@@ -213,6 +213,10 @@ def start_job(args=None):
             if TOKEN:
                 exec_params['token'] = TOKEN
 
+        elif args.job_type[i] == "perf-ui":
+            # add logic for exec params here
+            pass
+
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'redis_connection': '',  'job_name': args.job_name}
