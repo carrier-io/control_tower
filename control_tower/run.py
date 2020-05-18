@@ -213,13 +213,19 @@ def start_job(args=None):
             if TOKEN:
                 exec_params['token'] = TOKEN
 
-        elif args.job_type[i] == "perf-ui":
-            # add logic for exec params here
-            pass
+        elif args.job_type[i] == "observer":
+            exec_params['GALLOPER_URL'] = GALLOPER_URL
+            exec_params['BUCKET'] = BUCKET if not args.bucket else args.bucket
+            exec_params['REMOTE_URL'] = ""  # TODO fix here
+            exec_params['LISTENER_URL'] = ""  # TODO fix here
+            if TOKEN:
+                exec_params['TOKEN'] = TOKEN
+            if mounts:
+                exec_params['mounts'] = mounts
 
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
-                           'execution_params': exec_params, 'redis_connection': '',  'job_name': args.job_name}
+                           'execution_params': exec_params, 'redis_connection': '', 'job_name': args.job_name}
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
@@ -417,7 +423,6 @@ def kill_job(group):
         sleep(60)
         print("Aborting distributed tasks ... ")
     return 0
-
 
 # if __name__ == "__main__":
 #     from control_tower.config_mock import BulkConfig
