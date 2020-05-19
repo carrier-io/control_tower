@@ -219,7 +219,7 @@ def start_job(args=None):
             exec_params['REMOTE_URL'] = args.execution_params[0]["REMOTE_URL"]
             exec_params['LISTENER_URL'] = args.execution_params[0]["LISTENER_URL"]
             if TOKEN:
-                exec_params['TOKEN'] = TOKEN
+                exec_params['token'] = TOKEN
             if mounts:
                 exec_params['mounts'] = mounts if not args.execution_params[0]["mounts"] else args.execution_params[0]["mounts"]
 
