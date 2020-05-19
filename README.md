@@ -47,5 +47,16 @@ docker run -t --rm \
        -t dast -n supertestjob -q 1
 ```
 
+### Example for observer
+
+```
+docker run -t --rm \
+       -e REDIS_HOST=192.168.0.107 spirogov/cc:l-1 \
+       -c spirogov/observer:l-1 \
+       -e '{ "cmd": "-f data.zip -s /tmp/data/webmail.side -r html -fp 100 -si 400 -tl 500", "REMOTE_URL": "localhost:4444",
+       "LISTENER_URL": "localhost:9999", "GALLOPER_URL": "http://localhost/api/v1", "GALLOPER_PROJECT_ID": "1", "token": ""}' \
+       -r 1 -t observer -q 1 -n web_perf
+```
+
 ## License
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower?ref=badge_large)
