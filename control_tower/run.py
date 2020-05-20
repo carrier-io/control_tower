@@ -226,7 +226,7 @@ def start_job(args=None):
             if TOKEN:
                 exec_params['token'] = TOKEN
             if mounts:
-                exec_params['mounts'] = mounts if not args.execution_params[0]["mounts"] else args.execution_params[0][
+                exec_params['mounts'] = mounts if not execution_params["mounts"] else execution_params[
                     "mounts"]
 
         for _ in range(int(args.concurrency[i])):
