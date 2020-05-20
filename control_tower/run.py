@@ -214,14 +214,20 @@ def start_job(args=None):
                 exec_params['token'] = TOKEN
 
         elif args.job_type[i] == "observer":
-            exec_params['GALLOPER_URL'] = args.execution_params[0]["GALLOPER_URL"]
-            exec_params['BUCKET'] = BUCKET if not args.bucket else args.bucket
-            exec_params['REMOTE_URL'] = args.execution_params[0]["REMOTE_URL"]
-            exec_params['LISTENER_URL'] = args.execution_params[0]["LISTENER_URL"]
+            execution_params = args.execution_params[0]
+
+            variables = ["GALLOPER_URL", "REMOTE_URL", "LISTENER_URL", "REPORTS_BUCKET", "TESTS_BUCKET", "ENV",
+                         "EXPORTERS_PATH"]
+
+            for var_name in variables:
+                if var_name in execution_params.keys():
+                    exec_params[var_name] = execution_params[var_name]
+
             if TOKEN:
                 exec_params['token'] = TOKEN
             if mounts:
-                exec_params['mounts'] = mounts if not args.execution_params[0]["mounts"] else args.execution_params[0]["mounts"]
+                exec_params['mounts'] = mounts if not args.execution_params[0]["mounts"] else args.execution_params[0][
+                    "mounts"]
 
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
