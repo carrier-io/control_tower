@@ -13,8 +13,8 @@ def parse_args(events):
         "job_name": '',
         "concurrency": [],
         "channel": [],
-        "artifact": [],
-        "bucket": [],
+        "artifact": "",
+        "bucket": "",
         "save_reports": False,
         "junit": False,
         "quality_gate": False,
@@ -29,8 +29,8 @@ def parse_args(events):
         args["job_name"] = event.get('job_name', 'test')
         if "channel" in event:
             args["channel"].append(event["channel"])
-        args["bucket"].append(event.get('bucket', ''))
-        args["artifact"].append(event.get('artifact', ''))
+        args["bucket"] = event.get('bucket', '')
+        args["artifact"] = event.get('artifact', '')
         args["save_reports"] = event.get('save_reports', False)
         args["junit"] = event.get('junit', False)
         args["quality_gate"] = event.get('quality_gate', False)
@@ -62,7 +62,6 @@ def parse_args(events):
 
 def handler(event=None, context=None):
     try:
-        sleep(10)
         os.mkdir('/tmp/reports')
         args = parse_args(event)
         from control_tower.run import _start_and_track
