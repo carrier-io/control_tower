@@ -298,9 +298,25 @@ def start_job(args=None):
             if TOKEN:
                 exec_params['token'] = TOKEN
 
+        elif args.job_type[i] == "observer":
+            execution_params = args.execution_params[0]
+
+            variables = ["GALLOPER_URL", "REMOTE_URL", "LISTENER_URL", "REPORTS_BUCKET", "TESTS_BUCKET", "ENV",
+                         "EXPORTERS_PATH"]
+
+            for var_name in variables:
+                if var_name in execution_params.keys():
+                    exec_params[var_name] = execution_params[var_name]
+
+            if TOKEN:
+                exec_params['token'] = TOKEN
+            if mounts:
+                exec_params['mounts'] = mounts if not execution_params["mounts"] else execution_params[
+                    "mounts"]
+
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
-                           'execution_params': exec_params, 'redis_connection': '',  'job_name': args.job_name}
+                           'execution_params': exec_params, 'redis_connection': '', 'job_name': args.job_name}
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
@@ -498,7 +514,6 @@ def kill_job(group):
         sleep(60)
         print("Aborting distributed tasks ... ")
     return 0
-
 
 # if __name__ == "__main__":
 #     from control_tower.config_mock import BulkConfig
