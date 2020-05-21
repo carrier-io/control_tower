@@ -180,7 +180,7 @@ def append_test_config(args):
     for each in ["container", "concurrency", "job_type"]:
         if not getattr(args, each) and each in test_config.keys():
             setattr(args, each, [test_config[each]])
-    for each in ["junit", "quality_gate", "save_reports", "artifact", "bucket"]:
+    for each in ["junit", "quality_gate", "save_reports"]:
         if not getattr(args, each) and each in test_config.keys():
             setattr(args, each, str2bool(test_config[each]))
 
