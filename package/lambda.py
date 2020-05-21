@@ -20,15 +20,20 @@ def parse_args(events):
         "quality_gate": False,
         "deviation": 0,
         "max_deviation": 0,
+        "test_id": ""
     }
     for event in events:
-        args['container'].append(event["container"])
-        args["execution_params"].append(loads(event['execution_params']))
-        args["job_type"].append(event['job_type'])
-        args["concurrency"].append(event['concurrency'])
-        args["job_name"] = event.get('job_name', 'test')
+        if "container" in event:
+            args["container"].append(event["container"])
+        if "execution_params" in event:
+            args["execution_params"].append(loads(event["execution_params"]))
+        if "job_type" in event:
+            args["job_type"].append(event["job_type"])
+        if "concurrency" in event:
+            args["concurrency"].append(event["concurrency"])
         if "channel" in event:
             args["channel"].append(event["channel"])
+        args["job_name"] = event.get('job_name', 'test')
         args["bucket"] = event.get('bucket', '')
         args["artifact"] = event.get('artifact', '')
         args["save_reports"] = event.get('save_reports', False)
@@ -36,6 +41,7 @@ def parse_args(events):
         args["quality_gate"] = event.get('quality_gate', False)
         args["deviation"] = event.get('deviation', 0)
         args["max_deviation"] = event.get('max_deviation', 0)
+        args["test_id"] = event.get('test_id', '')
         env_vars = event.get("cc_env_vars", None)
         if env_vars:
             for key, value in env_vars.items():
@@ -55,8 +61,12 @@ def parse_args(events):
         quality_gate=args["quality_gate"],
         deviation=args["deviation"],
         max_deviation=args["max_deviation"],
-        report_path="/tmp/reports"
+        report_path="/tmp/reports",
+        test_id=args["test_id"],
         )
+    if args.test_id:
+        from control_tower.run import append_test_config
+        args = append_test_config(args)
     return args
 
 

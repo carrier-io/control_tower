@@ -24,7 +24,7 @@ class Config(object):
 class BulkConfig(object):
     def __init__(self, bulk_container, bulk_params, job_type, job_name, bulk_concurrency, channel=[],
                  bucket="", artifact="", save_reports=False, junit=False, quality_gate=False, deviation=0,
-                 max_deviation=0, report_path="/tmp/reports"):
+                 max_deviation=0, report_path="/tmp/reports", test_id=''):
         self.container = bulk_container
         self.execution_params = bulk_params
         self.job_name = job_name
@@ -39,6 +39,7 @@ class BulkConfig(object):
         self.deviation = deviation
         self.max_deviation = max_deviation
         self.report_path = report_path
+        self.test_id = test_id
 
     def get_config(self):
         return dict(container=self.container,
@@ -54,4 +55,5 @@ class BulkConfig(object):
                     quality_gate=self.quality_gate,
                     deviation=self.deviation,
                     max_deviation=self.max_deviation,
-                    report_path=self.report_path)
+                    report_path=self.report_path,
+                    test_id=self.test_id)
