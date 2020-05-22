@@ -133,45 +133,43 @@ def append_test_config(args):
     headers = {'content-type': 'application/json'}
     if TOKEN:
         headers['Authorization'] = f'bearer {TOKEN}'
-    url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
-
-    test_config = requests.get(f"{url}?raw=1", headers=headers).json()
+    url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/{args.test_id}"
+    # get job_type
+    test_config = requests.get(url, headers=headers).json()
     job_type = args.job_type[0] if args.job_type else test_config["job_type"]
     lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
 
     params = {}
-    test_type = None
 
+    # prepare params
     if lg_type == 'jmeter':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
         if args.execution_params and "cmd" in args.execution_params[0].keys():
             exec_params = args.execution_params[0]['cmd'].split("-J")
             for each in exec_params:
                 if "=" in each:
                     _ = each.split("=")
-                    if _[0] == "test.type":
-                        test_type = str(_[1]).strip()
-                    else:
-                        params[_[0]] = str(_[1]).strip()
+                    params[_[0]] = str(_[1]).strip()
     elif lg_type == 'gatling':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
         if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[0].keys():
             exec_params = args.execution_params[0]['GATLING_TEST_PARAMS'].split("-D")
             for each in exec_params:
                 if "=" in each:
                     _ = each.split("=")
-                    if _[0] == "test_type":
-                        test_type = str(_[1]).strip()
-                    else:
-                        params[_[0]] = str(_[1]).strip()
+                    params[_[0]] = str(_[1]).strip()
     else:
-        return args
+        print(f"No data found for test_id={args.test_id}")
+        exit(1)
 
     data = {
         "parallel": args.concurrency[0] if args.concurrency else None,
         "params": dumps(params),
-        "test_type": test_type,
         "type": "config"
     }
+    # merge params with test config
     test_config = requests.post(url, json=data, headers=headers).json()
+    # set args end env vars
     execution_params = loads(test_config["execution_params"])
     setattr(args, "execution_params", [execution_params])
     for each in ["artifact", "bucket", "job_name"]:
@@ -188,7 +186,6 @@ def append_test_config(args):
     for key, value in env_vars.items():
         if not environ.get(key, None):
             globals()[ENV_VARS_MAPPING.get(key)] = value
-
     return args
 
 
