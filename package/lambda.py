@@ -13,25 +13,39 @@ def parse_args(events):
         "job_name": '',
         "concurrency": [],
         "channel": [],
-        "artifact": [],
-        "bucket": [],
-        "save_reports": '',
+        "artifact": "",
+        "bucket": "",
+        "save_reports": False,
         "junit": False,
         "quality_gate": False,
+        "deviation": 0,
+        "max_deviation": 0,
+        "test_id": ""
     }
     for event in events:
-        args['container'].append(event["container"])
-        args["execution_params"].append(loads(event['execution_params']))
-        args["job_type"].append(event['job_type'])
-        args["concurrency"].append(event['concurrency'])
-        args["job_name"] = event.get('job_name', 'test')
+        if "container" in event:
+            args["container"].append(event["container"])
+        if "execution_params" in event:
+            args["execution_params"].append(loads(event["execution_params"]))
+        if "job_type" in event:
+            args["job_type"].append(event["job_type"])
+        if "concurrency" in event:
+            args["concurrency"].append(event["concurrency"])
         if "channel" in event:
             args["channel"].append(event["channel"])
-        args["bucket"].append(event.get('bucket', ''))
-        args["artifact"].append(event.get('artifact', ''))
-        args["save_reports"] = event.get('save_reports', None)
+        args["job_name"] = event.get('job_name', 'test')
+        args["bucket"] = event.get('bucket', '')
+        args["artifact"] = event.get('artifact', '')
+        args["save_reports"] = event.get('save_reports', False)
         args["junit"] = event.get('junit', False)
         args["quality_gate"] = event.get('quality_gate', False)
+        args["deviation"] = event.get('deviation', 0)
+        args["max_deviation"] = event.get('max_deviation', 0)
+        args["test_id"] = event.get('test_id', '')
+        env_vars = event.get("cc_env_vars", None)
+        if env_vars:
+            for key, value in env_vars.items():
+                os.environ[key] = value
 
     args = BulkConfig(
         bulk_container=args['container'],
@@ -44,8 +58,15 @@ def parse_args(events):
         artifact=args["artifact"],
         save_reports=args["save_reports"],
         junit=args["junit"],
-        quality_gate=args["quality_gate"]
+        quality_gate=args["quality_gate"],
+        deviation=args["deviation"],
+        max_deviation=args["max_deviation"],
+        report_path="/tmp/reports",
+        test_id=args["test_id"],
         )
+    if args.test_id:
+        from control_tower.run import append_test_config
+        args = append_test_config(args)
     return args
 
 

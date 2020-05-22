@@ -42,7 +42,7 @@ ADDITIONAL_FILES = environ.get('additional_files', None)
 BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
 DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
 JVM_ARGS = environ.get('JVM_ARGS', None)
-TOKEN = environ.get('OAToken', None)
+TOKEN = environ.get('token', None)
 mounts = environ.get('mounts', None)
 release_id = environ.get('release_id', None)
 app = None
@@ -58,6 +58,25 @@ JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
     "free_style": "other"
+}
+
+ENV_VARS_MAPPING = {
+    "REDIS_USER": "REDIS_USER",
+    "REDIS_PASSWORD": "REDIS_PASSWORD",
+    "REDIS_HOST": "REDIS_HOST",
+    "REDIS_PORT": "REDIS_PORT",
+    "REDIS_DB": "REDIS_DB",
+    "GALLOPER_WEB_HOOK": "GALLOPER_WEB_HOOK",
+    "LOKI_PORT": "LOKI_PORT",
+    "mounts": "mounts",
+    "release_id": "release_id",
+    "sampler": "SAMPLER",
+    "request": "REQUEST",
+    "data_wait": "CALCULATION_DELAY",
+    "check_saturation": "CHECK_SATURATION",
+    "error_rate": "MAX_ERRORS",
+    "dev": "DEVIATION",
+    "max_dev": "MAX_DEVIATION"
 }
 
 
@@ -79,31 +98,94 @@ def str2json(v):
 
 def arg_parse():
     parser = argparse.ArgumentParser(description='Carrier Command Center')
-    parser.add_argument('-c', '--container', action="append", type=str,
+    parser.add_argument('-c', '--container', action="append", type=str, default=[],
                         help="Name of container to run the job e.g. getcarrier/dusty:latest")
-    parser.add_argument('-e', '--execution_params', action="append", type=str2json,
+    parser.add_argument('-e', '--execution_params', action="append", type=str2json, default=[],
                         help="Execution params for jobs e.g. \n"
                              "{\n\t'host': 'localhost', \n\t'port':'443', \n\t'protocol':'https'"
                              ", \n\t'project_name':'MY_PET', \n\t'environment':'stag', \n\t"
                              "'test_type': 'basic'"
                              "\n} will be valid for dast container")
-    parser.add_argument('-t', '--job_type', action="append", type=str,
+    parser.add_argument('-t', '--job_type', action="append", type=str, default=[],
                         help="Type of a job: e.g. sast, dast, perfmeter, perfgun, perf-ui")
-    parser.add_argument('-n', '--job_name', type=str, default='',
+    parser.add_argument('-n', '--job_name', type=str, default="",
                         help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
-    parser.add_argument('-q', '--concurrency', action="append", type=int,
+    parser.add_argument('-q', '--concurrency', action="append", type=int, default=[],
                         help="Number of parallel workers to run the job")
     parser.add_argument('-r', '--channel', action="append", default=[], type=int,
                         help="Number of parallel workers to run the job")
     parser.add_argument('-a', '--artifact', default="", type=str)
     parser.add_argument('-b', '--bucket', default="", type=str)
-    parser.add_argument('-sr', '--save_reports', action="append", default=None, type=str)
+    parser.add_argument('-sr', '--save_reports', default=False, type=str2bool)
     parser.add_argument('-j', '--junit', default=False, type=str2bool)
     parser.add_argument('-qg', '--quality_gate', default=False, type=str2bool)
     parser.add_argument('-p', '--report_path', default="/tmp/reports", type=str)
     parser.add_argument('-d', '--deviation', default=0, type=float)
     parser.add_argument('-md', '--max_deviation', default=0, type=float)
+    parser.add_argument('-tid', '--test_id', default="", type=str)
     args, _ = parser.parse_known_args()
+    if args.test_id and GALLOPER_URL:
+        args = append_test_config(args)
+    return args
+
+
+def append_test_config(args):
+    headers = {'content-type': 'application/json'}
+    if TOKEN:
+        headers['Authorization'] = f'bearer {TOKEN}'
+    url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/{args.test_id}"
+    # get job_type
+    test_config = requests.get(url, headers=headers).json()
+    job_type = args.job_type[0] if args.job_type else test_config["job_type"]
+    lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
+
+    params = {}
+
+    # prepare params
+    if lg_type == 'jmeter':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
+        if args.execution_params and "cmd" in args.execution_params[0].keys():
+            exec_params = args.execution_params[0]['cmd'].split("-J")
+            for each in exec_params:
+                if "=" in each:
+                    _ = each.split("=")
+                    params[_[0]] = str(_[1]).strip()
+    elif lg_type == 'gatling':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
+        if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[0].keys():
+            exec_params = args.execution_params[0]['GATLING_TEST_PARAMS'].split("-D")
+            for each in exec_params:
+                if "=" in each:
+                    _ = each.split("=")
+                    params[_[0]] = str(_[1]).strip()
+    else:
+        print(f"No data found for test_id={args.test_id}")
+        exit(1)
+
+    data = {
+        "parallel": args.concurrency[0] if args.concurrency else None,
+        "params": dumps(params),
+        "type": "config"
+    }
+    # merge params with test config
+    test_config = requests.post(url, json=data, headers=headers).json()
+    # set args end env vars
+    execution_params = loads(test_config["execution_params"])
+    setattr(args, "execution_params", [execution_params])
+    for each in ["artifact", "bucket", "job_name"]:
+        if not getattr(args, each) and each in test_config.keys():
+            setattr(args, each, test_config[each])
+    for each in ["container", "concurrency", "job_type"]:
+        if not getattr(args, each) and each in test_config.keys():
+            setattr(args, each, [test_config[each]])
+    for each in ["junit", "quality_gate", "save_reports"]:
+        if not getattr(args, each) and each in test_config.keys():
+            setattr(args, each, str2bool(test_config[each]))
+
+    env_vars = test_config["cc_env_vars"]
+    for key, value in env_vars.items():
+        if not environ.get(key, None):
+            globals()[ENV_VARS_MAPPING.get(key)] = value
     return args
 
 
