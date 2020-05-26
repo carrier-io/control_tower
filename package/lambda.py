@@ -72,7 +72,8 @@ def parse_args(events):
 
 def handler(event=None, context=None):
     try:
-        os.mkdir('/tmp/reports')
+        if not os.path.exists('/tmp/reports'):
+            os.mkdir('/tmp/reports')
         args = parse_args(event)
         from control_tower.run import _start_and_track
         _start_and_track(args)
