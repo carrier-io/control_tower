@@ -52,10 +52,12 @@ docker run -t --rm \
 ```
 docker run -t --rm \
        -e REDIS_HOST=192.168.0.107 \
-       -e OAToken="auth token here" \
+       -e token="auth token here" \
+       -e galloper_url="http://localhost/api/v1" \
+       -e bucket="reports" \
        getcarrier/control_tower:latest \
        -c getcarrier/observer:latest \
-       -e '{ "cmd": "-f data.zip -sc /tmp/data/webmail.side -r html -fp 100 -si 400 -tl 500", "REMOTE_URL": "localhost:4444", "LISTENER_URL": "localhost:9999","GALLOPER_URL": "http://localhost/api/v1", "GALLOPER_PROJECT_ID": "1"}' \
+       -e '{ "cmd": "-f data.zip -sc /tmp/data/webmail.side", "REMOTE_URL": "localhost:4444", "LISTENER_URL": "localhost:9999", "GALLOPER_PROJECT_ID": "1"}' \
        -r 1 -t observer -q 1 -n web_perf
 ```
 
