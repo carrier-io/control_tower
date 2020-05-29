@@ -297,9 +297,10 @@ def start_job(args=None):
 
         elif args.job_type[i] == "observer":
             execution_params = args.execution_params[0]
+            exec_params["GALLOPER_URL"] = GALLOPER_URL
+            execution_params["REPORTS_BUCKET"] = BUCKET
 
-            variables = ["GALLOPER_URL", "REMOTE_URL", "LISTENER_URL", "REPORTS_BUCKET", "TESTS_BUCKET", "ENV",
-                         "EXPORTERS_PATH"]
+            variables = ["REMOTE_URL", "LISTENER_URL", "TESTS_BUCKET", "ENV", "EXPORTERS_PATH"]
 
             for var_name in variables:
                 if var_name in execution_params.keys():
