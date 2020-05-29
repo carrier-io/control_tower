@@ -296,9 +296,11 @@ def start_job(args=None):
                 exec_params['token'] = TOKEN
 
         elif args.job_type[i] == "observer":
-            execution_params = args.execution_params[0]
+            execution_params = args.execution_params[i]
             exec_params["GALLOPER_URL"] = GALLOPER_URL
             execution_params["REPORTS_BUCKET"] = BUCKET
+            exec_params["RESULTS_BUCKET"] = results_bucket
+            exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
 
             variables = ["REMOTE_URL", "LISTENER_URL", "TESTS_BUCKET", "ENV", "EXPORTERS_PATH"]
 
