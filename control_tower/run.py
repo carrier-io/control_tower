@@ -301,6 +301,7 @@ def start_job(args=None):
             execution_params["REPORTS_BUCKET"] = BUCKET
             exec_params["RESULTS_BUCKET"] = results_bucket
             exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
+            exec_params["GALLOPER_PROJECT_ID"] = PROJECT_ID
 
             variables = ["REMOTE_URL", "LISTENER_URL", "TESTS_BUCKET", "ENV", "EXPORTERS_PATH"]
 
