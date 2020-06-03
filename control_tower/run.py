@@ -449,8 +449,6 @@ def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
 
 
 def _start_and_track(args=None):
-    print(args)
-
     if not args:
         args = arg_parse()
     deviation = DEVIATION if args.deviation == 0 else args.deviation
