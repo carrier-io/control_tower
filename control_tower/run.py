@@ -76,7 +76,11 @@ ENV_VARS_MAPPING = {
     "check_saturation": "CHECK_SATURATION",
     "error_rate": "MAX_ERRORS",
     "dev": "DEVIATION",
-    "max_dev": "MAX_DEVIATION"
+    "max_dev": "MAX_DEVIATION",
+    "galloper_url": "GALLOPER_URL",
+    "token": "TOKEN",
+    "project_id": "PROJECT_ID",
+    "bucket": "BUCKET"
 }
 
 
