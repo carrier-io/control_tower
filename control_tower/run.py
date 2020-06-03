@@ -76,7 +76,11 @@ ENV_VARS_MAPPING = {
     "check_saturation": "CHECK_SATURATION",
     "error_rate": "MAX_ERRORS",
     "dev": "DEVIATION",
-    "max_dev": "MAX_DEVIATION"
+    "max_dev": "MAX_DEVIATION",
+    "galloper_url": "GALLOPER_URL",
+    "token": "TOKEN",
+    "project_id": "PROJECT_ID",
+    "bucket": "BUCKET"
 }
 
 
@@ -445,6 +449,8 @@ def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
 
 
 def _start_and_track(args=None):
+    print(args)
+
     if not args:
         args = arg_parse()
     deviation = DEVIATION if args.deviation == 0 else args.deviation
