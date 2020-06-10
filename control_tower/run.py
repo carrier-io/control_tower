@@ -119,6 +119,7 @@ def arg_parse():
     parser.add_argument('-sr', '--save_reports', default=False, type=str2bool)
     parser.add_argument('-j', '--junit', default=False, type=str2bool)
     parser.add_argument('-qg', '--quality_gate', default=False, type=str2bool)
+    parser.add_argument('-jr', '--jira', default=False, type=str2bool)
     parser.add_argument('-p', '--report_path', default="/tmp/reports", type=str)
     parser.add_argument('-d', '--deviation', default=0, type=float)
     parser.add_argument('-md', '--max_deviation', default=0, type=float)
@@ -178,7 +179,7 @@ def append_test_config(args):
     for each in ["container", "concurrency", "job_type"]:
         if not getattr(args, each) and each in test_config.keys():
             setattr(args, each, [test_config[each]])
-    for each in ["junit", "quality_gate", "save_reports"]:
+    for each in ["junit", "quality_gate", "save_reports", "jira"]:
         if not getattr(args, each) and each in test_config.keys():
             setattr(args, each, str2bool(test_config[each]))
 
@@ -251,7 +252,8 @@ def start_job(args=None):
         "bucket": results_bucket,
         "prefix": DISTRIBUTED_MODE_PREFIX,
         "junit": args.junit,
-        "token": TOKEN
+        "token": TOKEN,
+        "jira": args.jira
     }
     for channel in channels:
         if str(channel) not in celery_connection_cluster:

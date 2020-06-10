@@ -18,6 +18,7 @@ def parse_args(events):
         "save_reports": False,
         "junit": False,
         "quality_gate": False,
+        "jira": False,
         "deviation": 0,
         "max_deviation": 0,
         "test_id": ""
@@ -39,6 +40,7 @@ def parse_args(events):
         args["save_reports"] = event.get('save_reports', False)
         args["junit"] = event.get('junit', False)
         args["quality_gate"] = event.get('quality_gate', False)
+        args["jira"] = event.get('jira', False)
         args["deviation"] = event.get('deviation', 0)
         args["max_deviation"] = event.get('max_deviation', 0)
         args["test_id"] = event.get('test_id', '')
@@ -63,6 +65,7 @@ def parse_args(events):
         max_deviation=args["max_deviation"],
         report_path="/tmp/reports",
         test_id=args["test_id"],
+        jira=args["jira"]
         )
     if args.test_id:
         from control_tower.run import append_test_config
