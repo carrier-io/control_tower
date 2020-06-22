@@ -87,6 +87,29 @@ PROJECT_PACKAGE_MAPPER = {
     "custom": {"duration": -1, "load_generators": -1},  # need to set custom values?
 }
 
+ENV_VARS_MAPPING = {
+    "REDIS_USER": "REDIS_USER",
+    "REDIS_PASSWORD": "REDIS_PASSWORD",
+    "REDIS_HOST": "REDIS_HOST",
+    "REDIS_PORT": "REDIS_PORT",
+    "REDIS_DB": "REDIS_DB",
+    "GALLOPER_WEB_HOOK": "GALLOPER_WEB_HOOK",
+    "LOKI_PORT": "LOKI_PORT",
+    "mounts": "mounts",
+    "release_id": "release_id",
+    "sampler": "SAMPLER",
+    "request": "REQUEST",
+    "data_wait": "CALCULATION_DELAY",
+    "check_saturation": "CHECK_SATURATION",
+    "error_rate": "MAX_ERRORS",
+    "dev": "DEVIATION",
+    "max_dev": "MAX_DEVIATION",
+    "galloper_url": "GALLOPER_URL",
+    "token": "TOKEN",
+    "project_id": "PROJECT_ID",
+    "bucket": "BUCKET"
+}
+
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -323,10 +346,14 @@ def start_job(args=None):
                 exec_params['token'] = TOKEN
 
         elif args.job_type[i] == "observer":
-            execution_params = args.execution_params[0]
+            execution_params = args.execution_params[i]
+            exec_params["GALLOPER_URL"] = GALLOPER_URL
+            execution_params["REPORTS_BUCKET"] = BUCKET
+            exec_params["RESULTS_BUCKET"] = results_bucket
+            exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
+            exec_params["GALLOPER_PROJECT_ID"] = PROJECT_ID
 
-            variables = ["GALLOPER_URL", "REMOTE_URL", "LISTENER_URL", "REPORTS_BUCKET", "TESTS_BUCKET", "ENV",
-                         "EXPORTERS_PATH"]
+            variables = ["REMOTE_URL", "LISTENER_URL", "TESTS_BUCKET", "ENV", "EXPORTERS_PATH"]
 
             for var_name in variables:
                 if var_name in execution_params.keys():
