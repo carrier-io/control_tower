@@ -24,7 +24,8 @@ class Config(object):
 class BulkConfig(object):
     def __init__(self, bulk_container, bulk_params, job_type, job_name, bulk_concurrency, channel=[],
                  bucket="", artifact="", save_reports=False, junit=False, quality_gate=False, deviation=0,
-                 max_deviation=0, report_path="/tmp/reports", test_id=''):
+                 max_deviation=0, report_path="/tmp/reports", test_id='', jira=False, report_portal=False,
+                 email=False, azure_devops=False, email_recipients=None):
         self.container = bulk_container
         self.execution_params = bulk_params
         self.job_name = job_name
@@ -40,6 +41,11 @@ class BulkConfig(object):
         self.max_deviation = max_deviation
         self.report_path = report_path
         self.test_id = test_id
+        self.jira = jira
+        self.report_portal = report_portal
+        self.email = email
+        self.azure_devops = azure_devops
+        self.email_recipients = email_recipients
 
     def get_config(self):
         return dict(container=self.container,
@@ -56,4 +62,9 @@ class BulkConfig(object):
                     deviation=self.deviation,
                     max_deviation=self.max_deviation,
                     report_path=self.report_path,
-                    test_id=self.test_id)
+                    test_id=self.test_id,
+                    jira=self.jira,
+                    report_portal=self.report_portal,
+                    email=self.email,
+                    email_recipients=self.email_recipients,
+                    azure_devops=self.azure_devops)
