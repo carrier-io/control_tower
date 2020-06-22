@@ -19,7 +19,7 @@ from json import loads, dumps
 from os import environ, path
 from celery import Celery, chord
 from celery.contrib.abortable import AbortableAsyncResult
-from time import sleep
+from time import sleep, time
 from uuid import uuid4
 import re
 from datetime import datetime
@@ -79,6 +79,14 @@ ENV_VARS_MAPPING = {
     "max_dev": "MAX_DEVIATION"
 }
 
+PROJECT_PACKAGE_MAPPER = {
+    "basic": {"duration": 1800, "load_generators": 1},
+    "startup": {"duration": 7200, "load_generators": 5},
+    "professional": {"duration": 28800, "load_generators": 10},
+    "enterprise": {"duration": -1, "load_generators": -1},
+    "custom": {"duration": -1, "load_generators": -1},  # need to set custom values?
+}
+
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -120,6 +128,10 @@ def arg_parse():
     parser.add_argument('-j', '--junit', default=False, type=str2bool)
     parser.add_argument('-qg', '--quality_gate', default=False, type=str2bool)
     parser.add_argument('-jr', '--jira', default=False, type=str2bool)
+    parser.add_argument('-eml', '--email', default=False, type=str2bool)
+    parser.add_argument('-el', '--email_recipients', default="", type=str)
+    parser.add_argument('-rp', '--report_portal', default=False, type=str2bool)
+    parser.add_argument('-ado', '--azure_devops', default=False, type=str2bool)
     parser.add_argument('-p', '--report_path', default="/tmp/reports", type=str)
     parser.add_argument('-d', '--deviation', default=0, type=float)
     parser.add_argument('-md', '--max_deviation', default=0, type=float)
@@ -166,6 +178,7 @@ def append_test_config(args):
     data = {
         "parallel": args.concurrency[0] if args.concurrency else None,
         "params": dumps(params),
+        "emails": args.email_recipients if args.email_recipients else "",
         "type": "config"
     }
     # merge params with test config
@@ -173,13 +186,13 @@ def append_test_config(args):
     # set args end env vars
     execution_params = loads(test_config["execution_params"])
     setattr(args, "execution_params", [execution_params])
-    for each in ["artifact", "bucket", "job_name"]:
+    for each in ["artifact", "bucket", "job_name", "email_recipients"]:
         if not getattr(args, each) and each in test_config.keys():
             setattr(args, each, test_config[each])
     for each in ["container", "concurrency", "job_type"]:
         if not getattr(args, each) and each in test_config.keys():
             setattr(args, each, [test_config[each]])
-    for each in ["junit", "quality_gate", "save_reports", "jira"]:
+    for each in ["junit", "quality_gate", "save_reports", "jira", "report_portal", "email", "azure_devops"]:
         if not getattr(args, each) and each in test_config.keys():
             setattr(args, each, str2bool(test_config[each]))
 
@@ -234,6 +247,13 @@ def connect_to_celery(concurrency, redis_db=None, retry=5):
 def start_job(args=None):
     if not args:
         args = arg_parse()
+    if GALLOPER_URL and PROJECT_ID and TOKEN:
+        package = get_project_package()
+        allowable_load_generators = PROJECT_PACKAGE_MAPPER.get(package)["load_generators"]
+        for each in args.concurrency:
+            if allowable_load_generators != -1 and allowable_load_generators < each:
+                print(f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
+                exit(0)
     concurrency_cluster = {}
     channels = args.channel
     if not channels:
@@ -245,6 +265,10 @@ def start_job(args=None):
         concurrency_cluster[str(channels[index])] += args.concurrency[index]
     celery_connection_cluster = {}
     results_bucket = str(args.job_name).replace("_", "").lower()
+    integration = []
+    for each in ["jira", "report_portal", "email", "azure_devops"]:
+        if getattr(args, each):
+            integration.append(each)
     post_processor_args = {
         "galloper_url": GALLOPER_URL,
         "project_id": PROJECT_ID,
@@ -253,7 +277,8 @@ def start_job(args=None):
         "prefix": DISTRIBUTED_MODE_PREFIX,
         "junit": args.junit,
         "token": TOKEN,
-        "jira": args.jira
+        "integration": integration,
+        "email_recipients": args.email_recipients
     }
     for channel in channels:
         if str(channel) not in celery_connection_cluster:
@@ -327,6 +352,12 @@ def start_job(args=None):
             celery_connection_cluster[each]['post_processor'])
         groups.append(task_group)
     return groups, test_details
+
+
+def get_project_package():
+    url = f"{GALLOPER_URL}/api/v1/project/{PROJECT_ID}"
+    headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
+    return requests.get(url, headers=headers).json()["package"]
 
 
 def test_start_notify(args):
@@ -424,6 +455,12 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
 # TODO check for lost connection and retry
 def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
     result = 0
+    test_start = time()
+    max_duration = -1
+    if GALLOPER_URL and PROJECT_ID and TOKEN:
+        package = get_project_package()
+        max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
+
     while not group.ready():
         sleep(60)
         if CHECK_SATURATION:
@@ -434,6 +471,9 @@ def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
                 result = 1
         else:
             print("Still processing ...")
+        if max_duration != -1 and max_duration <= int((time() - test_start)):
+            print(f"Exceeded max test duration - {max_duration} sec")
+            kill_job(group)
     if group.successful():
         print("We are done successfully")
     else:
