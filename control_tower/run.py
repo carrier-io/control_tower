@@ -57,7 +57,8 @@ KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
-    "free_style": "other"
+    "free_style": "other",
+    "observer": "observer"
 }
 
 ENV_VARS_MAPPING = {
@@ -194,6 +195,8 @@ def append_test_config(args):
                 if "=" in each:
                     _ = each.split("=")
                     params[_[0]] = str(_[1]).strip()
+    elif lg_type == 'observer':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
     else:
         print(f"No data found for test_id={args.test_id}")
         exit(1)
