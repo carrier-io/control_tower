@@ -57,7 +57,8 @@ KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
-    "free_style": "other"
+    "free_style": "other",
+    "observer": "observer"
 }
 
 PROJECT_PACKAGE_MAPPER = {
@@ -175,6 +176,8 @@ def append_test_config(args):
                 if "=" in each:
                     _ = each.split("=")
                     params[_[0]] = str(_[1]).strip()
+    elif lg_type == 'observer':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
     else:
         print(f"No data found for test_id={args.test_id}")
         exit(1)
@@ -204,7 +207,6 @@ def append_test_config(args):
     for key, value in env_vars.items():
         if not environ.get(key, None):
             globals()[ENV_VARS_MAPPING.get(key)] = value
-    print(args)
     return args
 
 
@@ -329,13 +331,14 @@ def start_job(args=None):
 
         elif args.job_type[i] == "observer":
             execution_params = args.execution_params[i]
+
             exec_params["GALLOPER_URL"] = GALLOPER_URL
-            execution_params["REPORTS_BUCKET"] = BUCKET
+            exec_params["REPORTS_BUCKET"] = BUCKET
             exec_params["RESULTS_BUCKET"] = results_bucket
             exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
             exec_params["GALLOPER_PROJECT_ID"] = PROJECT_ID
 
-            variables = ["REMOTE_URL", "LISTENER_URL", "TESTS_BUCKET", "ENV", "EXPORTERS_PATH"]
+            variables = ["REMOTE_URL", "LISTENER_URL", "TESTS_BUCKET", "ENV", "EXPORTERS_PATH", "JIRA"]
 
             for var_name in variables:
                 if var_name in execution_params.keys():
