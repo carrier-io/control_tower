@@ -60,25 +60,6 @@ JOB_TYPE_MAPPING = {
     "free_style": "other"
 }
 
-ENV_VARS_MAPPING = {
-    "REDIS_USER": "REDIS_USER",
-    "REDIS_PASSWORD": "REDIS_PASSWORD",
-    "REDIS_HOST": "REDIS_HOST",
-    "REDIS_PORT": "REDIS_PORT",
-    "REDIS_DB": "REDIS_DB",
-    "GALLOPER_WEB_HOOK": "GALLOPER_WEB_HOOK",
-    "LOKI_PORT": "LOKI_PORT",
-    "mounts": "mounts",
-    "release_id": "release_id",
-    "sampler": "SAMPLER",
-    "request": "REQUEST",
-    "data_wait": "CALCULATION_DELAY",
-    "check_saturation": "CHECK_SATURATION",
-    "error_rate": "MAX_ERRORS",
-    "dev": "DEVIATION",
-    "max_dev": "MAX_DEVIATION"
-}
-
 PROJECT_PACKAGE_MAPPER = {
     "basic": {"duration": 1800, "load_generators": 1},
     "startup": {"duration": 7200, "load_generators": 5},
@@ -223,6 +204,7 @@ def append_test_config(args):
     for key, value in env_vars.items():
         if not environ.get(key, None):
             globals()[ENV_VARS_MAPPING.get(key)] = value
+    print(args)
     return args
 
 
@@ -382,9 +364,13 @@ def start_job(args=None):
 
 
 def get_project_package():
-    url = f"{GALLOPER_URL}/api/v1/project/{PROJECT_ID}"
-    headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
-    return requests.get(url, headers=headers).json()["package"]
+    try:
+        url = f"{GALLOPER_URL}/api/v1/project/{PROJECT_ID}"
+        headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
+        package = requests.get(url, headers=headers).json()["package"]
+    except:
+        package = "custom"
+    return package
 
 
 def test_start_notify(args):
