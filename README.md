@@ -62,7 +62,7 @@ docker run -t --rm \
        -r 1 -t observer -q 1 -n web_perf -j true
 ```
 
-or alternatiove using test id from galloper:
+or alternative using test id from galloper:
 
 ```
 docker run docker run -t --rm \
