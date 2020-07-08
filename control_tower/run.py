@@ -58,7 +58,9 @@ JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
     "free_style": "other",
-    "observer": "observer"
+    "observer": "observer",
+    "dast": "dast",
+    "sast": "sast",
 }
 
 PROJECT_PACKAGE_MAPPER = {
@@ -180,6 +182,10 @@ def append_test_config(args):
                     params[_[0]] = str(_[1]).strip()
     elif lg_type == 'observer':
         url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
+    elif lg_type == 'dast':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/dast/{args.test_id}"
+    elif lg_type == 'sast':
+        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
     else:
         print(f"No data found for test_id={args.test_id}")
         exit(1)
