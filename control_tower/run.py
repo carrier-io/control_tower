@@ -53,6 +53,7 @@ CHECK_SATURATION = environ.get('check_saturation', None)
 MAX_ERRORS = environ.get('error_rate', 100)
 DEVIATION = environ.get('dev', 0.02)
 MAX_DEVIATION = environ.get('max_dev', 0.05)
+U_AGGR = environ.get('u_aggr', 1)
 KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
@@ -470,7 +471,8 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
             "wait_till": CALCULATION_DELAY,
             "max_errors": MAX_ERRORS,
             "deviation": deviation,
-            "max_deviation": max_deviation
+            "max_deviation": max_deviation,
+            "u_aggr": U_AGGR
         }
         return requests.get(url, params=params, headers=headers).json()
     return {"message": "Test is in progress", "code": 0}
