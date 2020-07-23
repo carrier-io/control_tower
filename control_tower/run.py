@@ -402,46 +402,49 @@ def get_project_package():
 
 def test_start_notify(args):
     if GALLOPER_URL:
+        users_count = 0
+        duration = 0
         vusers_var_names = ["vusers", "users", "users_count", "ramp_users", "user_count"]
         lg_type = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
+        tests_count = len(args.execution_params) if args.execution_params else 1
         if lg_type == 'jmeter':
-            exec_params = args.execution_params[0]['cmd'] + " "
-            test_type = re.findall('-Jtest.type=(.+?) ', exec_params)
-            test_type = test_type[0] if len(test_type) else 'demo'
-            environment = re.findall("-Jenv.type=(.+?) ", exec_params)
-            environment = environment[0] if len(environment) else 'demo'
-            test_name = re.findall("-Jtest_name=(.+?) ", exec_params)
-            test_name = test_name[0] if len(test_name) else 'test'
-            duration = re.findall("-JDURATION=(.+?) ", exec_params)
-            duration = float(duration[0]) if len(duration) else 0
-            vusers = 0
-            for each in vusers_var_names:
-                if f'-j{each}' in exec_params.lower():
-                    pattern = f'-j{each}=(.+?) '
-                    vusers = re.findall(pattern, exec_params.lower())
-                    vusers = int(vusers[0]) * args.concurrency[0]
-                    break
-        elif lg_type == 'gatling':
-            exec_params = args.execution_params[0]
-            test_type = exec_params['test_type'] if exec_params.get('test_type') else 'demo'
-            test_name = exec_params['test'].split(".")[1].lower() if exec_params.get('test') else 'test'
-            environment = exec_params['env'] if exec_params.get('env') else 'demo'
-            duration, vusers = 0, 0
-            if exec_params.get('GATLING_TEST_PARAMS'):
-                if '-dduration' in exec_params['GATLING_TEST_PARAMS'].lower():
-                    duration = re.findall("-dduration=(.+?) ", exec_params['GATLING_TEST_PARAMS'].lower())[0]
+            for i in range(tests_count):
+                exec_params = args.execution_params[i]['cmd'] + " "
+                test_type = re.findall('-Jtest.type=(.+?) ', exec_params)
+                test_type = test_type[0] if len(test_type) else 'demo'
+                environment = re.findall("-Jenv.type=(.+?) ", exec_params)
+                environment = environment[0] if len(environment) else 'demo'
+                test_name = re.findall("-Jtest_name=(.+?) ", exec_params)
+                test_name = test_name[0] if len(test_name) else 'test'
+                duration = re.findall("-JDURATION=(.+?) ", exec_params)
+                duration = float(duration[0]) if len(duration) else 0
                 for each in vusers_var_names:
-                    if f'-d{each}' in exec_params['GATLING_TEST_PARAMS'].lower():
-                        pattern = f'-d{each}=(.+?) '
-                        vusers = re.findall(pattern, exec_params['GATLING_TEST_PARAMS'].lower())
-                        vusers = int(vusers[0]) * args.concurrency[0]
+                    if f'-j{each}' in exec_params.lower():
+                        pattern = f'-j{each}=(.+?) '
+                        vusers = re.findall(pattern, exec_params.lower())
+                        users_count += int(vusers[0]) * args.concurrency[i]
                         break
+        elif lg_type == 'gatling':
+            for i in range(tests_count):
+                exec_params = args.execution_params[i]
+                test_type = exec_params['test_type'] if exec_params.get('test_type') else 'demo'
+                test_name = exec_params['test'].split(".")[1].lower() if exec_params.get('test') else 'test'
+                environment = exec_params['env'] if exec_params.get('env') else 'demo'
+                if exec_params.get('GATLING_TEST_PARAMS'):
+                    if '-dduration' in exec_params['GATLING_TEST_PARAMS'].lower():
+                        duration = re.findall("-dduration=(.+?) ", exec_params['GATLING_TEST_PARAMS'].lower())[0]
+                    for each in vusers_var_names:
+                        if f'-d{each}' in exec_params['GATLING_TEST_PARAMS'].lower():
+                            pattern = f'-d{each}=(.+?) '
+                            vusers = re.findall(pattern, exec_params['GATLING_TEST_PARAMS'].lower())
+                            users_count += int(vusers[0]) * args.concurrency[i]
+                            break
         else:
             return {}
         start_time = datetime.utcnow().isoformat("T") + "Z"
 
         data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
-                'duration': duration, 'vusers': vusers, 'environment': environment, 'start_time': start_time,
+                'duration': duration, 'vusers': users_count, 'environment': environment, 'start_time': start_time,
                 'missed': 0}
         if release_id:
             data['release_id'] = release_id
