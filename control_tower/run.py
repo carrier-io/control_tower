@@ -230,7 +230,6 @@ def append_test_config(args):
     setattr(args, "concurrency", concurrency)
     setattr(args, "container", container)
     setattr(args, "job_type", job_type)
-    print(args)
     return args
 
 
