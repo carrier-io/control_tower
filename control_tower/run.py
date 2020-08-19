@@ -567,6 +567,7 @@ def _start_and_track(args=None):
     for group in groups:
         track_job(group, test_details.get("id", None), deviation, max_deviation)
     if args.junit:
+        print("Processing junit report ...")
         process_junit_report(args)
 
 
@@ -605,7 +606,7 @@ def download_junit_report(results_bucket, file_name, retry):
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     junit_report = requests.get(url, headers=headers, allow_redirects=True)
-    if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
+    if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         retry -= 1
         if retry == 0:
             return None
