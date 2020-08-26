@@ -14,6 +14,10 @@
 
 import argparse
 
+import os
+import tempfile
+import zipfile
+
 from copy import deepcopy
 from json import loads, dumps
 from os import environ, path
@@ -373,6 +377,34 @@ def start_job(args=None):
                 exec_params['mounts'] = mounts if not execution_params["mounts"] else execution_params[
                     "mounts"]
 
+        elif args.job_type[i] == "sast":
+            if "code_path" in exec_params:
+                print("Uploading code artifact to Galloper ...")
+                with tempfile.TemporaryFile() as src_file:
+                    with zipfile.ZipFile(src_file, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                        src_dir = os.path.abspath("/code")
+                        for dirpath, _, filenames in os.walk(src_dir):
+                            if dirpath == src_dir:
+                                rel_dir = ""
+                            else:
+                                rel_dir = os.path.relpath(dirpath, src_dir)
+                                zip_file.write(dirpath, arcname=rel_dir)
+                            for filename in filenames:
+                                zip_file.write(
+                                    os.path.join(dirpath, filename),
+                                    arcname=os.path.join(rel_dir, filename)
+                                )
+                    src_file.seek(0)
+                    headers = {
+                        "Authorization": f"Bearer {TOKEN}"
+                    }
+                    url = f"{GALLOPER_URL}/api/v1/artifacts/{PROJECT_ID}/sast/{args.test_id}.zip"
+                    requests.post(
+                        url, headers=headers, files={
+                            "file": (f"{args.test_id}.zip", src_file)
+                        }
+                    )
+
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'redis_connection': '', 'job_name': args.job_name}
@@ -535,6 +567,7 @@ def _start_and_track(args=None):
     for group in groups:
         track_job(group, test_details.get("id", None), deviation, max_deviation)
     if args.junit:
+        print("Processing junit report ...")
         process_junit_report(args)
 
 
@@ -573,7 +606,7 @@ def download_junit_report(results_bucket, file_name, retry):
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     junit_report = requests.get(url, headers=headers, allow_redirects=True)
-    if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
+    if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         retry -= 1
         if retry == 0:
             return None
