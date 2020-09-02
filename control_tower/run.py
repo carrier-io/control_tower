@@ -340,12 +340,6 @@ def start_job(args=None):
             exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
             exec_params["GALLOPER_PROJECT_ID"] = PROJECT_ID
 
-            variables = ["REMOTE_URL", "LISTENER_URL", "TESTS_BUCKET", "ENV", "EXPORTERS_PATH", "JIRA"]
-
-            for var_name in variables:
-                if var_name in execution_params.keys():
-                    exec_params[var_name] = execution_params[var_name]
-
             if TOKEN:
                 exec_params['token'] = TOKEN
             if mounts:
@@ -510,6 +504,7 @@ def _start_and_track(args=None):
     for group in groups:
         track_job(group, test_details.get("id", None), deviation, max_deviation)
     if args.junit:
+        print("Processing junit report ...")
         process_junit_report(args)
 
 
@@ -548,7 +543,8 @@ def download_junit_report(results_bucket, file_name, retry):
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     junit_report = requests.get(url, headers=headers, allow_redirects=True)
-    if 'botocore.errorfactory.NoSuchKey' in junit_report.text:
+    if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
+        print("Waiting for report to be accessible ...")
         retry -= 1
         if retry == 0:
             return None
