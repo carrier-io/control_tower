@@ -14,6 +14,10 @@
 
 import argparse
 
+import os
+import tempfile
+import zipfile
+
 from copy import deepcopy
 from json import loads, dumps
 from os import environ, path
@@ -53,12 +57,15 @@ CHECK_SATURATION = environ.get('check_saturation', None)
 MAX_ERRORS = environ.get('error_rate', 100)
 DEVIATION = environ.get('dev', 0.02)
 MAX_DEVIATION = environ.get('max_dev', 0.05)
+U_AGGR = environ.get('u_aggr', 1)
 KILL_MAX_WAIT_TIME = 10
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
     "free_style": "other",
-    "observer": "observer"
+    "observer": "observer",
+    "dast": "dast",
+    "sast": "sast",
 }
 
 PROJECT_PACKAGE_MAPPER = {
@@ -89,7 +96,8 @@ ENV_VARS_MAPPING = {
     "galloper_url": "GALLOPER_URL",
     "token": "TOKEN",
     "project_id": "PROJECT_ID",
-    "bucket": "BUCKET"
+    "bucket": "BUCKET",
+    "u_aggr": "U_AGGR"
 }
 
 
@@ -160,55 +168,72 @@ def append_test_config(args):
     lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
 
     params = {}
-
+    execution_params = []
+    concurrency = []
+    container = []
+    job_type = []
+    tests_count = len(args.execution_params) if args.execution_params else 1
     # prepare params
-    if lg_type == 'jmeter':
-        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
-        if args.execution_params and "cmd" in args.execution_params[0].keys():
-            exec_params = args.execution_params[0]['cmd'].split("-J")
-            for each in exec_params:
-                if "=" in each:
-                    _ = each.split("=")
-                    params[_[0]] = str(_[1]).strip()
-    elif lg_type == 'gatling':
-        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
-        if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[0].keys():
-            exec_params = args.execution_params[0]['GATLING_TEST_PARAMS'].split("-D")
-            for each in exec_params:
-                if "=" in each:
-                    _ = each.split("=")
-                    params[_[0]] = str(_[1]).strip()
-    elif lg_type == 'observer':
-        url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
-    else:
-        print(f"No data found for test_id={args.test_id}")
-        exit(1)
+    for i in range(tests_count):
+        if lg_type == 'jmeter':
+            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
+            if args.execution_params and "cmd" in args.execution_params[i].keys():
+                exec_params = args.execution_params[i]['cmd'].split("-J")
+                for each in exec_params:
+                    if "=" in each:
+                        _ = each.split("=")
+                        params[_[0]] = str(_[1]).strip()
+        elif lg_type == 'gatling':
+            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
+            if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[i].keys():
+                exec_params = args.execution_params[i]['GATLING_TEST_PARAMS'].split("-D")
+                for each in exec_params:
+                    if "=" in each:
+                        _ = each.split("=")
+                        params[_[0]] = str(_[1]).strip()
+        elif lg_type == 'observer':
+            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
+        elif lg_type == 'dast':
+            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/dast/{args.test_id}"
+        elif lg_type == 'sast':
+            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
+        else:
+            print(f"No data found for test_id={args.test_id}")
+            exit(1)
 
-    data = {
-        "parallel": args.concurrency[0] if args.concurrency else None,
-        "params": dumps(params),
-        "emails": args.email_recipients if args.email_recipients else "",
-        "type": "config"
-    }
-    # merge params with test config
-    test_config = requests.post(url, json=data, headers=headers).json()
-    # set args end env vars
-    execution_params = loads(test_config["execution_params"])
-    setattr(args, "execution_params", [execution_params])
-    for each in ["artifact", "bucket", "job_name", "email_recipients"]:
-        if not getattr(args, each) and each in test_config.keys():
-            setattr(args, each, test_config[each])
-    for each in ["container", "concurrency", "job_type"]:
-        if not getattr(args, each) and each in test_config.keys():
-            setattr(args, each, [test_config[each]])
-    for each in ["junit", "quality_gate", "save_reports", "jira", "report_portal", "email", "azure_devops"]:
-        if not getattr(args, each) and each in test_config.keys():
-            setattr(args, each, str2bool(test_config[each]))
+        data = {
+            "parallel": args.concurrency[i] if args.concurrency else None,
+            "params": dumps(params),
+            "emails": args.email_recipients if args.email_recipients else "",
+            "type": "config"
+        }
+        # merge params with test config
+        test_config = requests.post(url, json=data, headers=headers).json()
+        # set args end env vars
+        execution_params.append(loads(test_config["execution_params"]))
+        concurrency.append(test_config["concurrency"])
+        container.append(test_config["container"])
+        job_type.append(test_config["job_type"])
 
-    env_vars = test_config["cc_env_vars"]
-    for key, value in env_vars.items():
-        if not environ.get(key, None):
-            globals()[ENV_VARS_MAPPING.get(key)] = value
+        for each in ["artifact", "bucket", "job_name", "email_recipients"]:
+            if not getattr(args, each) and each in test_config.keys():
+                setattr(args, each, test_config[each])
+        for each in ["container", "job_type"]:
+            if not getattr(args, each) and each in test_config.keys():
+                setattr(args, each, [test_config[each]])
+        for each in ["junit", "quality_gate", "save_reports", "jira", "report_portal", "email", "azure_devops"]:
+            if not getattr(args, each) and each in test_config.keys():
+                setattr(args, each, str2bool(test_config[each]))
+
+        env_vars = test_config["cc_env_vars"]
+        for key, value in env_vars.items():
+            if not environ.get(key, None):
+                globals()[ENV_VARS_MAPPING.get(key)] = value
+
+    setattr(args, "execution_params", execution_params)
+    setattr(args, "concurrency", concurrency)
+    setattr(args, "container", container)
+    setattr(args, "job_type", job_type)
     return args
 
 
@@ -346,6 +371,34 @@ def start_job(args=None):
                 exec_params['mounts'] = mounts if not execution_params["mounts"] else execution_params[
                     "mounts"]
 
+        elif args.job_type[i] == "sast":
+            if "code_path" in exec_params:
+                print("Uploading code artifact to Galloper ...")
+                with tempfile.TemporaryFile() as src_file:
+                    with zipfile.ZipFile(src_file, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                        src_dir = os.path.abspath("/code")
+                        for dirpath, _, filenames in os.walk(src_dir):
+                            if dirpath == src_dir:
+                                rel_dir = ""
+                            else:
+                                rel_dir = os.path.relpath(dirpath, src_dir)
+                                zip_file.write(dirpath, arcname=rel_dir)
+                            for filename in filenames:
+                                zip_file.write(
+                                    os.path.join(dirpath, filename),
+                                    arcname=os.path.join(rel_dir, filename)
+                                )
+                    src_file.seek(0)
+                    headers = {
+                        "Authorization": f"Bearer {TOKEN}"
+                    }
+                    url = f"{GALLOPER_URL}/api/v1/artifacts/{PROJECT_ID}/sast/{args.test_id}.zip"
+                    requests.post(
+                        url, headers=headers, files={
+                            "file": (f"{args.test_id}.zip", src_file)
+                        }
+                    )
+
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'redis_connection': '', 'job_name': args.job_name}
@@ -374,46 +427,49 @@ def get_project_package():
 
 def test_start_notify(args):
     if GALLOPER_URL:
+        users_count = 0
+        duration = 0
         vusers_var_names = ["vusers", "users", "users_count", "ramp_users", "user_count"]
         lg_type = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
+        tests_count = len(args.execution_params) if args.execution_params else 1
         if lg_type == 'jmeter':
-            exec_params = args.execution_params[0]['cmd'] + " "
-            test_type = re.findall('-Jtest.type=(.+?) ', exec_params)
-            test_type = test_type[0] if len(test_type) else 'demo'
-            environment = re.findall("-Jenv.type=(.+?) ", exec_params)
-            environment = environment[0] if len(environment) else 'demo'
-            test_name = re.findall("-Jtest_name=(.+?) ", exec_params)
-            test_name = test_name[0] if len(test_name) else 'test'
-            duration = re.findall("-JDURATION=(.+?) ", exec_params)
-            duration = float(duration[0]) if len(duration) else 0
-            vusers = 0
-            for each in vusers_var_names:
-                if f'-j{each}' in exec_params.lower():
-                    pattern = f'-j{each}=(.+?) '
-                    vusers = re.findall(pattern, exec_params.lower())
-                    vusers = int(vusers[0]) * args.concurrency[0]
-                    break
-        elif lg_type == 'gatling':
-            exec_params = args.execution_params[0]
-            test_type = exec_params['test_type'] if exec_params.get('test_type') else 'demo'
-            test_name = exec_params['test'].split(".")[1].lower() if exec_params.get('test') else 'test'
-            environment = exec_params['env'] if exec_params.get('env') else 'demo'
-            duration, vusers = 0, 0
-            if exec_params.get('GATLING_TEST_PARAMS'):
-                if '-dduration' in exec_params['GATLING_TEST_PARAMS'].lower():
-                    duration = re.findall("-dduration=(.+?) ", exec_params['GATLING_TEST_PARAMS'].lower())[0]
+            for i in range(tests_count):
+                exec_params = args.execution_params[i]['cmd'] + " "
+                test_type = re.findall('-Jtest.type=(.+?) ', exec_params)
+                test_type = test_type[0] if len(test_type) else 'demo'
+                environment = re.findall("-Jenv.type=(.+?) ", exec_params)
+                environment = environment[0] if len(environment) else 'demo'
+                test_name = re.findall("-Jtest_name=(.+?) ", exec_params)
+                test_name = test_name[0] if len(test_name) else 'test'
+                duration = re.findall("-JDURATION=(.+?) ", exec_params)
+                duration = float(duration[0]) if len(duration) else 0
                 for each in vusers_var_names:
-                    if f'-d{each}' in exec_params['GATLING_TEST_PARAMS'].lower():
-                        pattern = f'-d{each}=(.+?) '
-                        vusers = re.findall(pattern, exec_params['GATLING_TEST_PARAMS'].lower())
-                        vusers = int(vusers[0]) * args.concurrency[0]
+                    if f'-j{each}' in exec_params.lower():
+                        pattern = f'-j{each}=(.+?) '
+                        vusers = re.findall(pattern, exec_params.lower())
+                        users_count += int(vusers[0]) * args.concurrency[i]
                         break
+        elif lg_type == 'gatling':
+            for i in range(tests_count):
+                exec_params = args.execution_params[i]
+                test_type = exec_params['test_type'] if exec_params.get('test_type') else 'demo'
+                test_name = exec_params['test'].split(".")[1].lower() if exec_params.get('test') else 'test'
+                environment = exec_params['env'] if exec_params.get('env') else 'demo'
+                if exec_params.get('GATLING_TEST_PARAMS'):
+                    if '-dduration' in exec_params['GATLING_TEST_PARAMS'].lower():
+                        duration = re.findall("-dduration=(.+?) ", exec_params['GATLING_TEST_PARAMS'].lower())[0]
+                    for each in vusers_var_names:
+                        if f'-d{each}' in exec_params['GATLING_TEST_PARAMS'].lower():
+                            pattern = f'-d{each}=(.+?) '
+                            vusers = re.findall(pattern, exec_params['GATLING_TEST_PARAMS'].lower())
+                            users_count += int(vusers[0]) * args.concurrency[i]
+                            break
         else:
             return {}
         start_time = datetime.utcnow().isoformat("T") + "Z"
 
         data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
-                'duration': duration, 'vusers': vusers, 'environment': environment, 'start_time': start_time,
+                'duration': duration, 'vusers': users_count, 'environment': environment, 'start_time': start_time,
                 'missed': 0}
         if release_id:
             data['release_id'] = release_id
@@ -458,7 +514,8 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
             "wait_till": CALCULATION_DELAY,
             "max_errors": MAX_ERRORS,
             "deviation": deviation,
-            "max_deviation": max_deviation
+            "max_deviation": max_deviation,
+            "u_aggr": U_AGGR
         }
         return requests.get(url, params=params, headers=headers).json()
     return {"message": "Test is in progress", "code": 0}
