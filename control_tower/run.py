@@ -343,7 +343,8 @@ def start_job(args=None):
                 exec_params['additional_files'] = ADDITIONAL_FILES
             if JVM_ARGS:
                 exec_params['JVM_ARGS'] = JVM_ARGS
-
+            if 'additional_files' in exec_params:
+                exec_params['additional_files'] = dumps(exec_params['additional_files']).replace("'", "\"")
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
@@ -470,7 +471,7 @@ def test_start_notify(args):
 
         data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
                 'duration': duration, 'vusers': users_count, 'environment': environment, 'start_time': start_time,
-                'missed': 0}
+                'missed': 0, 'status': 'In progress'}
         if release_id:
             data['release_id'] = release_id
 
@@ -540,7 +541,11 @@ def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
                 result = 1
         else:
             print("Still processing ...")
-        if max_duration != -1 and max_duration <= int((time() - test_start)):
+        if test_was_canceled(test_id) and result != 1:
+            print("Test was canceled")
+            kill_job(group)
+            result = 1
+        if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             print(f"Exceeded max test duration - {max_duration} sec")
             kill_job(group)
     if group.successful():
@@ -549,6 +554,19 @@ def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
         print("We are failed badly")
     group.forget()
     return result
+
+
+def test_was_canceled(test_id):
+    try:
+        if test_id and PROJECT_ID and GALLOPER_URL:
+            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{test_id}/status'
+            headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
+            headers["Content-type"] = "application/json"
+            status = requests.get(url, headers=headers).json()['message']
+            return True if status == "Canceled" else False
+        return False
+    except:
+        return False
 
 
 def _start_and_track(args=None):
