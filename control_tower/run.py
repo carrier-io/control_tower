@@ -260,12 +260,18 @@ def connect_to_celery(concurrency, redis_db=None, retry=5):
                  broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
                  include=['celery'])
-    # print(f"Celery Status: {dumps(app.control.inspect().stats(), indent=2)}")
-    if not app.control.inspect().stats() and retry != 0:
-        print("retry")
-        retry -= 1
-        sleep(60)
-        return connect_to_celery(concurrency, redis_db=redis_db, retry=retry)
+
+    app.conf.update(broker_transport_options={'max_retries': 3})
+    try:
+        if not app.control.inspect().stats() and retry != 0:
+            print("retry")
+            retry -= 1
+            sleep(60)
+            return connect_to_celery(concurrency, redis_db=redis_db, retry=retry)
+    except:
+        print("Invalid REDIS password")
+        exit(1)
+
     if concurrency:
         workers = sum(value['pool']['max-concurrency'] for key, value in app.control.inspect().stats().items())
         active = sum(len(value) for key, value in app.control.inspect().active().items())
