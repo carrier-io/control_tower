@@ -29,6 +29,7 @@ import re
 from datetime import datetime
 import requests
 import sys
+from control_tower.git_clone import clone_repo, post_artifact
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
@@ -234,6 +235,12 @@ def append_test_config(args):
     setattr(args, "concurrency", concurrency)
     setattr(args, "container", container)
     setattr(args, "job_type", job_type)
+    if "git" in test_config.keys():
+        git_setting = test_config["git"]
+        clone_repo(git_setting)
+        post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID)
+        setattr(args, "artifact", "tests_from_git_repo.zip")
+        setattr(args, "bucket", "tests")
     return args
 
 
@@ -304,7 +311,7 @@ def start_job(args=None):
             concurrency_cluster[str(channels[index])] = 0
         concurrency_cluster[str(channels[index])] += args.concurrency[index]
     celery_connection_cluster = {}
-    results_bucket = str(args.job_name).replace("_", "").lower()
+    results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
     integration = []
     for each in ["jira", "report_portal", "email", "azure_devops"]:
         if getattr(args, each):
