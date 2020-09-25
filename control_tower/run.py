@@ -378,6 +378,7 @@ def start_job(args=None):
             exec_params["RESULTS_BUCKET"] = results_bucket
             exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
             exec_params["GALLOPER_PROJECT_ID"] = PROJECT_ID
+            exec_params["JOB_NAME"] = args.job_name
 
             if TOKEN:
                 exec_params['token'] = TOKEN
