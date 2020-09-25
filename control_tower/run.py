@@ -29,7 +29,6 @@ import re
 from datetime import datetime
 import requests
 import sys
-from control_tower.git_clone import clone_repo, post_artifact
 
 REDIS_USER = environ.get('REDIS_USER', '')
 REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
@@ -236,6 +235,7 @@ def append_test_config(args):
     setattr(args, "container", container)
     setattr(args, "job_type", job_type)
     if "git" in test_config.keys():
+        from control_tower.git_clone import clone_repo, post_artifact
         git_setting = test_config["git"]
         clone_repo(git_setting)
         post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID)
