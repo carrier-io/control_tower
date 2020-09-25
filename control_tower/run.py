@@ -606,19 +606,21 @@ def start_and_track(args=None):
 
 
 def process_security_quality_gate(args):
-    # TODO: save jUnit report as file to local filesystem
+    # Save jUnit report as file to local filesystem
+    junit_report_data = download_junit_report(
+        args.job_type[0], f"{args.test_id}_junit_report.xml", retry=12
+    )
+    if junit_report_data:
+        with open(os.path.join(args.report_path, f"junit_report_{args.test_id}.xml"), "w") as rept:
+            rept.write(junit_report_data.text)
     # Quality Gate
-    bucket = args.job_type[0]
-    obj = f"{args.test_id}_quality_gate_report.json"
-    #
-    quality_gate_data = download_junit_report(bucket, obj, retry=12)
-    #
+    quality_gate_data = download_junit_report(
+        args.job_type[0], f"{args.test_id}_quality_gate_report.json", retry=12
+    )
     if not quality_gate_data:
         print("No security quality gate data found")
         return
-    #
     quality_gate = loads(quality_gate_data.text)
-    #
     if quality_gate["quality_gate_stats"]:
         for line in quality_gate["quality_gate_stats"]:
             print(line)
