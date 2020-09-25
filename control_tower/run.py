@@ -595,11 +595,35 @@ def _start_and_track(args=None):
     if args.junit:
         print("Processing junit report ...")
         process_junit_report(args)
+    if args.job_type[0] in ["dast", "sast"] and args.quality_gate:
+        print("Processing security quality gate ...")
+        process_security_quality_gate(args)
 
 
 def start_and_track(args=None):
     _start_and_track(args)
     exit(0)
+
+
+def process_security_quality_gate(args):
+    # TODO: save jUnit report as file to local filesystem
+    # Quality Gate
+    bucket = args.job_type[0]
+    obj = f"{args.test_id}_quality_gate_report.json"
+    #
+    quality_gate_data = download_junit_report(bucket, obj, retry=12)
+    #
+    if not quality_gate_data:
+        print("No security quality gate data found")
+        return
+    #
+    quality_gate = loads(quality_gate_data.text)
+    #
+    if quality_gate["quality_gate_stats"]:
+        for line in quality_gate["quality_gate_stats"]:
+            print(line)
+    if quality_gate["fail_quality_gate"]:
+        exit(1)
 
 
 def process_junit_report(args):
