@@ -1,0 +1,39 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+      - run: mkdir $GITHUB_WORKSPACE/package/lambda
+      - uses: addnab/docker-run-action@v1
+        with:
+          image: lambci/lambda:build-python3.7
+          options: -v $GITHUB_WORKSPACE/package:/var/task
+          run: pip install -r requirements.txt -t /var/task/lambda
+      - run: cp $GITHUB_WORKSPACE/package/lambda.py $GITHUB_WORKSPACE/package/lambda
+      - run: cd $GITHUB_WORKSPACE/package/lambda && zip control-tower.zip -r . && cp control-tower.zip ../
+      - run: rm -rf $GITHUB_WORKSPACE/package/lambda
+      - name: Git Push
+        uses: actions-go/push@v1
+        with:
+          commit-message: "Lambda Auto-build"
+          commit-files: $GITHUB_WORKSPACE/package/control-tower.zip
+        
+          
+        
