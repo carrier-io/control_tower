@@ -22,10 +22,12 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
       - run: mkdir $GITHUB_WORKSPACE/package/lambda
+      - run: ls -la
+      - run: echo $GITHUB_WORKSPACE
       - uses: addnab/docker-run-action@v1
         with:
           image: lambci/lambda:build-python3.7
-          run: pip install -r /github/workspace/requirements.txt -t /github/workspace
+          run: pip install -r package/requirements.txt -t /github/workspace/package/lambda
       - run: cp $GITHUB_WORKSPACE/package/lambda.py $GITHUB_WORKSPACE/package/lambda
       - run: cd $GITHUB_WORKSPACE/package/lambda && zip control-tower.zip -r . && cp control-tower.zip ../
       - run: rm -rf $GITHUB_WORKSPACE/package/lambda
