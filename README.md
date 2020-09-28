@@ -47,5 +47,30 @@ docker run -t --rm \
        -t dast -n supertestjob -q 1
 ```
 
+### Example for observer
+
+```
+docker run -t --rm \
+       -e REDIS_HOST=192.168.0.107 \
+       -e token="auth token here" \
+       -e galloper_url="http://localhost/api/v1" \
+       -e bucket="reports" \
+       -e project_id=1 \
+       getcarrier/control_tower:latest \
+       -c getcarrier/observer:latest \
+       -e '{ "cmd": "-f data.zip -sc /tmp/data/webmail.side", "REMOTE_URL": "localhost:4444", "LISTENER_URL": "localhost:9999"}' \
+       -r 1 -t observer -q 1 -n web_perf -j true
+```
+
+or alternative using test id from galloper:
+
+```
+docker run docker run -t --rm \
+       -e project_id=1 \
+       -e REDIS_HOST=192.168.0.107 \
+       -e galloper_url=http://192.168.0.107 \
+       -e token="auth token here" getcarrier/control_tower:latest --test_id ${galloper_test_id}
+```
+
 ## License
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fcarrier-io%2Fcontrol_tower?ref=badge_large)
