@@ -33,11 +33,15 @@ jobs:
       - run: cp $GITHUB_WORKSPACE/package/lambda.py $GITHUB_WORKSPACE/package/lambda
       - run: cd $GITHUB_WORKSPACE/package/lambda && zip control-tower.zip -r . && cp control-tower.zip ../
       - run: rm -rf $GITHUB_WORKSPACE/package/lambda
-      - name: Git Push
-        uses: actions-go/push@v1
+      - name: Commit files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git commit -m "control-tower lamda has arrived" -a
+      - name: Push changes
+        uses: ad-m/github-push-action@master
         with:
-          commit-message: "Lambda Auto-build"
-          commit-files: $GITHUB_WORKSPACE/package/control-tower.zip
+          github_token: ${{ secrets.GITHUB_TOKEN }}
         
           
         
