@@ -482,8 +482,11 @@ def test_start_notify(args):
         else:
             return {}
         start_time = datetime.utcnow().isoformat("T") + "Z"
-
-        data = {'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
+        if args.test_id:
+            test_id = args.test_id
+        else:
+            test_id = ""
+        data = {'test_id': test_id, 'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
                 'duration': duration, 'vusers': users_count, 'environment': environment, 'start_time': start_time,
                 'missed': 0, 'status': 'In progress'}
         if release_id:
@@ -582,7 +585,7 @@ def test_was_canceled(test_id):
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
-            return True if status == "Canceled" else False
+            return True if status in ["Canceled", "Finished"] else False
         return False
     except:
         return False

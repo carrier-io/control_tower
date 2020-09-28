@@ -81,12 +81,6 @@ def parse_args(events):
         azure_devops=args["azure_devops"],
         email_recipients=args["email_recipients"]
         )
-    if git:
-        from control_tower.git_clone import clone_repo, post_artifact
-        clone_repo(git)
-        post_artifact(os.environ.get('galloper_url'), os.environ.get('token'), os.environ.get('project_id'))
-        setattr(args, "artifact", "tests_from_git_repo.zip")
-        setattr(args, "bucket", "tests")
     if args.test_id:
         from control_tower.run import append_test_config
         args = append_test_config(args)
