@@ -36,7 +36,7 @@ jobs:
       - name: Commit files
         run: |
           git config --local user.email "artyom.rozumenko@gmail.com"
-          git config --local user.name "arozumenko"
+          git config --local user.name "Artem Rozumenko"
           git commit -m "control-tower lamda has arrived" -a
       - name: Push changes
         uses: ad-m/github-push-action@master
