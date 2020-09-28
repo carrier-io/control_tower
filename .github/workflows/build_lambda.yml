@@ -25,7 +25,7 @@ jobs:
       - uses: addnab/docker-run-action@v1
         with:
           image: lambci/lambda:build-python3.7
-          run: pip install -r requirements.txt -t /github/workspace
+          run: pip install -r /github/workspace/requirements.txt -t /github/workspace
       - run: cp $GITHUB_WORKSPACE/package/lambda.py $GITHUB_WORKSPACE/package/lambda
       - run: cd $GITHUB_WORKSPACE/package/lambda && zip control-tower.zip -r . && cp control-tower.zip ../
       - run: rm -rf $GITHUB_WORKSPACE/package/lambda
