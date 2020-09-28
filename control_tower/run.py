@@ -497,7 +497,7 @@ def test_start_notify(args):
         else:
             url = f'{GALLOPER_URL}/api/report'
 
-        response = requests.post(url, json=data, headers=headers).json()
+        response = requests.post(url, json=data, headers=headers)
 
         try:
             print(response.json()["message"])
