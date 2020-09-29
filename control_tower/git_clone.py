@@ -37,7 +37,6 @@ def _paramiko_client_SSHClient_auth(original_auth, forced_pkey):
 
 def clone_repo(git_settings):
     print("Cloning git repo ...")
-    print(git_settings)
     # Patch dulwich to work without valid UID/GID
     dulwich.repo.__original__get_default_identity = dulwich.repo._get_default_identity
     dulwich.repo._get_default_identity = _dulwich_repo_get_default_identity
@@ -64,7 +63,6 @@ def clone_repo(git_settings):
     if git_settings.get("repo_pass"):
         auth_args["password"] = git_settings.get("repo_pass")
     if git_settings.get("repo_key"):
-        print("KEY")
         key = git_settings.get("repo_key").replace("|", "\n")
         key_obj = io.StringIO(key)
         pkey = paramiko.RSAKey.from_private_key(key_obj)
