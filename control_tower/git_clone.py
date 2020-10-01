@@ -54,7 +54,7 @@ def clone_repo(git_settings):
     # Get options
     source = git_settings.get("repo")
     target = "/tmp/git_dir"
-    branch = "master"
+    branch = git_settings.get("repo_branch", "master")
     depth = None
     # Prepare auth
     auth_args = dict()
