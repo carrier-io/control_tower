@@ -54,7 +54,9 @@ def clone_repo(git_settings):
     # Get options
     source = git_settings.get("repo")
     target = "/tmp/git_dir"
-    branch = git_settings.get("repo_branch", "master")
+    branch = git_settings.get("repo_branch")
+    if not branch:
+        branch = "master"
     depth = None
     # Prepare auth
     auth_args = dict()
@@ -72,10 +74,14 @@ def clone_repo(git_settings):
     repository = porcelain.clone(
         source, target, checkout=False, depth=depth, **auth_args
     )
-    branch = branch.encode("utf-8")
-    repository[b"refs/heads/" + branch] = repository[b"refs/remotes/origin/" + branch]
-    repository.refs.set_symbolic_ref(b"HEAD", b"refs/heads/" + branch)
-    repository.reset_index(repository[b"HEAD"].tree)
+    try:
+        branch = branch.encode("utf-8")
+        repository[b"refs/heads/" + branch] = repository[b"refs/remotes/origin/" + branch]
+        repository.refs.set_symbolic_ref(b"HEAD", b"refs/heads/" + branch)
+        repository.reset_index(repository[b"HEAD"].tree)
+    except KeyError:
+        print(f"The {branch} branch does not exist")
+        exit(1)
 
 
 def zipdir(ziph):
