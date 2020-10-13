@@ -91,12 +91,12 @@ def zipdir(ziph):
             ziph.write(os.path.join(root, f), os.path.join(root.replace("/tmp/git_dir", ''), f))
 
 
-def post_artifact(galloper_url, token, project_id):
+def post_artifact(galloper_url, token, project_id, artifact):
     try:
-        ziph = zipfile.ZipFile("/tmp/tests_from_git_repo.zip", 'w', zipfile.ZIP_DEFLATED)
+        ziph = zipfile.ZipFile(f"/tmp/{artifact}", 'w', zipfile.ZIP_DEFLATED)
         zipdir(ziph)
         ziph.close()
-        files = {'file': open("/tmp/tests_from_git_repo.zip", 'rb')}
+        files = {'file': open(f"/tmp/{artifact}", 'rb')}
         headers = {'Authorization': f'bearer {token}'} if token else {}
         if project_id:
             upload_url = f'{galloper_url}/api/v1/artifacts/{project_id}/tests/file'
@@ -105,3 +105,9 @@ def post_artifact(galloper_url, token, project_id):
         r = requests.post(upload_url, allow_redirects=True, files=files, headers=headers)
     except Exception:
         print(format_exc())
+
+
+def delete_artifact(galloper_url, token, project_id, artifact):
+    url = f'{galloper_url}/api/v1/artifacts/{project_id}/tests'
+    headers = {'Authorization': f'bearer {token}'} if token else {}
+    requests.delete(f'{url}/file?fname[]={artifact}', headers=headers)

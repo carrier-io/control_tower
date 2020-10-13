@@ -238,8 +238,8 @@ def append_test_config(args):
         from control_tower.git_clone import clone_repo, post_artifact
         git_setting = test_config["git"]
         clone_repo(git_setting)
-        post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID)
-        setattr(args, "artifact", "tests_from_git_repo.zip")
+        post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip")
+        setattr(args, "artifact", f"{BUILD_ID}.zip")
         setattr(args, "bucket", "tests")
     return args
 
@@ -606,6 +606,9 @@ def _start_and_track(args=None):
     if args.job_type[0] in ["dast", "sast"] and args.quality_gate:
         print("Processing security quality gate ...")
         process_security_quality_gate(args)
+    if args.artifact == f"{BUILD_ID}.zip":
+        from control_tower.git_clone import delete_artifact
+        delete_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact)
 
 
 def start_and_track(args=None):
