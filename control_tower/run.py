@@ -241,6 +241,7 @@ def append_test_config(args):
         post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip")
         setattr(args, "artifact", f"{BUILD_ID}.zip")
         setattr(args, "bucket", "tests")
+        globals()["compile_and_run"] = "true"
     return args
 
 
@@ -365,6 +366,8 @@ def start_job(args=None):
             exec_params['artifact'] = TEST if not args.artifact else args.artifact
             exec_params['results_bucket'] = results_bucket
             exec_params['save_reports'] = args.save_reports
+            if globals().get("compile_and_run") == "true":
+                exec_params["compile_and_run"] = "true"
             if PROJECT_ID:
                 exec_params['project_id'] = PROJECT_ID
             if TOKEN:
