@@ -383,7 +383,7 @@ def start_job(args=None):
             exec_params["GALLOPER_PROJECT_ID"] = PROJECT_ID
             exec_params["JOB_NAME"] = args.job_name
             exec_params['ARTIFACT'] = args.artifact
-            exec_params['BUCKET'] = args.bucket
+            exec_params['TESTS_BUCKET'] = args.bucket
 
             if TOKEN:
                 exec_params['token'] = TOKEN
