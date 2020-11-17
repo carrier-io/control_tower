@@ -635,8 +635,7 @@ def test_was_canceled(test_id):
             url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{REPORT_TYPE_MAPPING.get(report_type)}/{test_id}/status'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
-            status = requests.get(url, headers=headers)
-            status = status.json()['message']
+            status = requests.get(url, headers=headers).json()['message']
             return True if status in ["Canceled", "Finished"] else False
         return False
     except:
