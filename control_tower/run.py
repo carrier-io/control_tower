@@ -59,6 +59,8 @@ DEVIATION = environ.get('dev', 0.02)
 MAX_DEVIATION = environ.get('max_dev', 0.05)
 U_AGGR = environ.get('u_aggr', 1)
 KILL_MAX_WAIT_TIME = 10
+report_type = ""
+
 JOB_TYPE_MAPPING = {
     "perfmeter": "jmeter",
     "perfgun": "gatling",
@@ -66,6 +68,14 @@ JOB_TYPE_MAPPING = {
     "observer": "observer",
     "dast": "dast",
     "sast": "sast",
+}
+
+REPORT_TYPE_MAPPING = {
+    "gatling": "backend",
+    "jmeter": "backend",
+    "observer": "frontend",
+    "dast": "security",
+    "sast": "security"
 }
 
 PROJECT_PACKAGE_MAPPER = {
@@ -166,7 +176,7 @@ def append_test_config(args):
     test_config = requests.get(url, headers=headers).json()
     job_type = args.job_type[0] if args.job_type else test_config["job_type"]
     lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
-
+    globals()["report_type"] = lg_type
     params = {}
     execution_params = []
     concurrency = []
@@ -384,6 +394,7 @@ def start_job(args=None):
             exec_params["JOB_NAME"] = args.job_name
             exec_params['ARTIFACT'] = args.artifact
             exec_params['TESTS_BUCKET'] = args.bucket
+            exec_params['REPORT_ID'] = BUILD_ID.replace("build_", "")
 
             if TOKEN:
                 exec_params['token'] = TOKEN
@@ -425,7 +436,12 @@ def start_job(args=None):
             celery_connection_cluster[str(channels[i])]['tasks'].append(
                 celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
 
-    test_details = test_start_notify(args)
+    if args.job_type[0] in ['perfgun', 'perfmeter']:
+        test_details = backend_perf_test_start_notify(args)
+    elif args.job_type[0] == "observer":
+        test_details = frontend_perf_test_start_notify(args)
+    else:
+        test_details = {}
     groups = []
     for each in celery_connection_cluster:
         task_group = chord(
@@ -435,17 +451,36 @@ def start_job(args=None):
     return groups, test_details
 
 
-def get_project_package():
-    try:
-        url = f"{GALLOPER_URL}/api/v1/project/{PROJECT_ID}"
-        headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
-        package = requests.get(url, headers=headers).json()["package"]
-    except:
-        package = "custom"
-    return package
+def frontend_perf_test_start_notify(args):
+    if GALLOPER_URL:
+        exec_params = args.execution_params[0]["cmd"] + " "
+        browser = re.findall('-b (.+?) ', exec_params)
+        browser_name = browser[0].split("_")[0].lower()
+        browser_version = browser[0].split("_")[1]
+        loops = re.findall('-l (.+?) ', exec_params)[0]
+        aggregation = re.findall('-a (.+?) ', exec_params)[0]
+
+        data = {
+            "report_id": BUILD_ID.replace("build_", ""),
+            "status": "In progress",
+            "test_name": args.job_name,
+            "base_url": "",
+            "browser_name": browser_name,
+            "browser_version": browser_version,
+            "env": args.execution_params[0]["ENV"],
+            "loops": loops,
+            "aggregation": aggregation,
+            "time": datetime.utcnow().isoformat(" ").split(".")[0]
+        }
+        headers = {'content-type': 'application/json'}
+        if TOKEN:
+            headers['Authorization'] = f'bearer {TOKEN}'
+
+        response = requests.post(f"{GALLOPER_URL}/api/v1/observer/{PROJECT_ID}", json=data, headers=headers)
+        return response.json()
 
 
-def test_start_notify(args):
+def backend_perf_test_start_notify(args):
     if GALLOPER_URL:
         users_count = 0
         duration = 0
@@ -518,6 +553,17 @@ def test_start_notify(args):
         return response.json()
     return {}
 
+
+def get_project_package():
+    try:
+        url = f"{GALLOPER_URL}/api/v1/project/{PROJECT_ID}"
+        headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
+        package = requests.get(url, headers=headers).json()["package"]
+    except:
+        package = "custom"
+    return package
+
+
 def start_job_exec(args=None):
     start_job(args)
     exit(0)
@@ -585,8 +631,8 @@ def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
 
 def test_was_canceled(test_id):
     try:
-        if test_id and PROJECT_ID and GALLOPER_URL:
-            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{test_id}/status'
+        if test_id and PROJECT_ID and GALLOPER_URL and report_type:
+            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{REPORT_TYPE_MAPPING.get(report_type)}/{test_id}/status'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
