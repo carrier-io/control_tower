@@ -59,6 +59,8 @@ DEVIATION = environ.get('dev', 0.02)
 MAX_DEVIATION = environ.get('max_dev', 0.05)
 U_AGGR = environ.get('u_aggr', 1)
 KILL_MAX_WAIT_TIME = 10
+SPLIT_CSV = environ.get('split_csv', 'False')
+CSV_PATH = environ.get('csv_path', '')
 report_type = ""
 
 JOB_TYPE_MAPPING = {
@@ -252,6 +254,20 @@ def append_test_config(args):
         setattr(args, "artifact", f"{BUILD_ID}.zip")
         setattr(args, "bucket", "tests")
         globals()["compile_and_run"] = "true"
+    if str2bool(SPLIT_CSV):
+        from control_tower.csv_splitter import process_csv
+        globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, args.bucket, CSV_PATH,
+                                             args.concurrency[0])
+        concurrency, execution_params, job_type, container = [], [], [], []
+        for i in range(args.concurrency[0]):
+            concurrency.append(1)
+            execution_params.append(args.execution_params[0])
+            job_type.append(args.job_type[0])
+            container.append(args.container[0])
+        args.concurrency = concurrency
+        args.execution_params = execution_params
+        args.job_type = job_type
+        args.container = container
     return args
 
 
@@ -365,10 +381,17 @@ def start_job(args=None):
                 exec_params['loki_port'] = LOKI_PORT
             if ADDITIONAL_FILES:
                 exec_params['additional_files'] = ADDITIONAL_FILES
-            if JVM_ARGS:
-                exec_params['JVM_ARGS'] = JVM_ARGS
+            if globals().get("csv_array"):
+                if 'additional_files' in exec_params:
+                    exec_params['additional_files'] = {**exec_params['additional_files'],
+                                                       **globals().get("csv_array")[i]}
+                else:
+                    exec_params['additional_files'] = globals().get("csv_array")[i]
+
             if 'additional_files' in exec_params:
                 exec_params['additional_files'] = dumps(exec_params['additional_files']).replace("'", "\"")
+            if JVM_ARGS:
+                exec_params['JVM_ARGS'] = JVM_ARGS
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
@@ -660,6 +683,11 @@ def _start_and_track(args=None):
     if args.artifact == f"{BUILD_ID}.zip":
         from control_tower.git_clone import delete_artifact
         delete_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact)
+    if globals().get("csv_array"):
+        from control_tower.csv_splitter import delete_csv
+        for each in globals().get("csv_array"):
+            csv_name = list(each.keys())[0].replace("tests/", "")
+            delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
 
 
 def start_and_track(args=None):
