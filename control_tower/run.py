@@ -105,7 +105,9 @@ ENV_VARS_MAPPING = {
     "token": "TOKEN",
     "project_id": "PROJECT_ID",
     "bucket": "BUCKET",
-    "u_aggr": "U_AGGR"
+    "u_aggr": "U_AGGR",
+    "split_csv": "SPLIT_CSV",
+    "csv_path": "CSV_PATH"
 }
 
 
@@ -571,7 +573,7 @@ def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.0
         max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
 
     while not arbiter.status(group_id)['state'] == 'done':
-        sleep(10)
+        sleep(60)
         if CHECK_SATURATION:
             test_status = check_test_is_saturating(test_id, deviation, max_deviation)
             print("Status:")

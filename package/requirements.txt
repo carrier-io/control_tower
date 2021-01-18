@@ -1,5 +1,5 @@
 requests==2.20.0
 dulwich==0.19.11
 paramiko==2.6.0
-git+https://github.com/hunkom/arbiter.git
-git+git://github.com/carrier-io/control_tower@arbiter#egg=control_tower
+git+https://github.com/carrier-io/arbiter.git
+git+git://github.com/carrier-io/control_tower@master#egg=control_tower
