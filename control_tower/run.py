@@ -17,12 +17,10 @@ import argparse
 import os
 import tempfile
 import zipfile
-
+from arbiter import Arbiter, Task
 from copy import deepcopy
 from json import loads, dumps
 from os import environ, path
-from celery import Celery, chord
-from celery.contrib.abortable import AbortableAsyncResult
 from time import sleep, time
 from uuid import uuid4
 import re
@@ -30,11 +28,10 @@ from datetime import datetime
 import requests
 import sys
 
-REDIS_USER = environ.get('REDIS_USER', '')
-REDIS_PASSWORD = environ.get('REDIS_PASSWORD', 'password')
-REDIS_HOST = environ.get('REDIS_HOST', 'localhost')
-REDIS_PORT = environ.get('REDIS_PORT', '6379')
-REDIS_DB = environ.get('REDIS_DB', 1)
+RABBIT_USER = environ.get('RABBIT_USER', 'user')
+RABBIT_PASSWORD = environ.get('RABBIT_PASSWORD', 'password')
+RABBIT_HOST = environ.get('RABBIT_HOST', 'localhost')
+RABBIT_PORT = environ.get('RABBIT_PORT', '5672')
 GALLOPER_WEB_HOOK = environ.get('GALLOPER_WEB_HOOK', None)
 LOKI_HOST = environ.get('loki_host', None)
 LOKI_PORT = environ.get('loki_port', '3100')
@@ -89,11 +86,10 @@ PROJECT_PACKAGE_MAPPER = {
 }
 
 ENV_VARS_MAPPING = {
-    "REDIS_USER": "REDIS_USER",
-    "REDIS_PASSWORD": "REDIS_PASSWORD",
-    "REDIS_HOST": "REDIS_HOST",
-    "REDIS_PORT": "REDIS_PORT",
-    "REDIS_DB": "REDIS_DB",
+    "RABBIT_USER": "RABBIT_USER",
+    "RABBIT_PASSWORD": "RABBIT_PASSWORD",
+    "RABBIT_HOST": "RABBIT_HOST",
+    "RABBIT_PORT": "RABBIT_PORT",
     "GALLOPER_WEB_HOOK": "GALLOPER_WEB_HOOK",
     "LOKI_PORT": "LOKI_PORT",
     "mounts": "mounts",
@@ -109,7 +105,9 @@ ENV_VARS_MAPPING = {
     "token": "TOKEN",
     "project_id": "PROJECT_ID",
     "bucket": "BUCKET",
-    "u_aggr": "U_AGGR"
+    "u_aggr": "U_AGGR",
+    "split_csv": "SPLIT_CSV",
+    "csv_path": "CSV_PATH"
 }
 
 
@@ -143,12 +141,12 @@ def arg_parse():
                              "\n} will be valid for dast container")
     parser.add_argument('-t', '--job_type', action="append", type=str, default=[],
                         help="Type of a job: e.g. sast, dast, perfmeter, perfgun, perf-ui")
-    parser.add_argument('-n', '--job_name', type=str, default="",
+    parser.add_argument('-n', '--job_name', type=str, default="test",
                         help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
     parser.add_argument('-q', '--concurrency', action="append", type=int, default=[],
                         help="Number of parallel workers to run the job")
-    parser.add_argument('-r', '--channel', action="append", default=[], type=int,
-                        help="Number of parallel workers to run the job")
+    parser.add_argument('-r', '--channel', action="append", default=[], type=str,
+                        help="Rabbit (interceptor) queue name to run the job")
     parser.add_argument('-a', '--artifact', default="", type=str)
     parser.add_argument('-b', '--bucket', default="", type=str)
     parser.add_argument('-sr', '--save_reports', default=False, type=str2bool)
@@ -184,7 +182,7 @@ def append_test_config(args):
     concurrency = []
     container = []
     job_type = []
-    tests_count = len(args.execution_params) if args.execution_params else 1
+    tests_count = len(args.concurrency) if args.concurrency else 1
     # prepare params
     for i in range(tests_count):
         if lg_type == 'jmeter':
@@ -287,37 +285,6 @@ def parse_id():
     return args
 
 
-def connect_to_celery(concurrency, redis_db=None, retry=5):
-    if not (redis_db and isinstance(redis_db, int)):
-        redis_db = REDIS_DB
-    app = Celery('CarrierExecutor',
-                 broker=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
-                 backend=f'redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{redis_db}',
-                 include=['celery'])
-
-    app.conf.update(broker_transport_options={'max_retries': 3})
-    try:
-        if not app.control.inspect().stats() and retry != 0:
-            print("retry")
-            retry -= 1
-            sleep(60)
-            return connect_to_celery(concurrency, redis_db=redis_db, retry=retry)
-    except:
-        print("Invalid REDIS password")
-        exit(1)
-
-    if concurrency:
-        workers = sum(value['pool']['max-concurrency'] for key, value in app.control.inspect().stats().items())
-        active = sum(len(value) for key, value in app.control.inspect().active().items())
-        available = workers - active
-        print(f"Total Workers: {workers}")
-        print(f"Available Workers: {available}")
-        if workers < concurrency:
-            print(f"We are unable to process your request due to limited resources. We have {workers} available")
-            exit(1)
-    return app
-
-
 def start_job(args=None):
     if not args:
         args = arg_parse()
@@ -328,16 +295,6 @@ def start_job(args=None):
             if allowable_load_generators != -1 and allowable_load_generators < each:
                 print(f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
                 exit(0)
-    concurrency_cluster = {}
-    channels = args.channel
-    if not channels:
-        for _ in args.container:
-            channels.append(REDIS_DB)
-    for index in range(len(channels)):
-        if str(channels[index]) not in concurrency_cluster:
-            concurrency_cluster[str(channels[index])] = 0
-        concurrency_cluster[str(channels[index])] += args.concurrency[index]
-    celery_connection_cluster = {}
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
     integration = []
     for each in ["jira", "report_portal", "email", "azure_devops"]:
@@ -354,28 +311,20 @@ def start_job(args=None):
         "integration": integration,
         "email_recipients": args.email_recipients
     }
-    for channel in channels:
-        if str(channel) not in celery_connection_cluster:
-            celery_connection_cluster[str(channel)] = {}
-        celery_connection_cluster[str(channel)]['app'] = connect_to_celery(concurrency_cluster[str(channel)], channel)
-        celery_connection_cluster[str(channel)]['post_processor'] = \
-            celery_connection_cluster[str(channel)]['app'].signature('tasks.post_process', kwargs=post_processor_args)
-    job_type = "".join(args.container)
-    job_type += "".join(args.job_type)
-
-    for i in range(len(args.container)):
-        if 'tasks' not in celery_connection_cluster[str(channels[i])]:
-            celery_connection_cluster[str(channels[i])]['tasks'] = []
+    arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER, password=RABBIT_PASSWORD)
+    tasks = []
+    for i in range(len(args.concurrency)):
         exec_params = deepcopy(args.execution_params[i])
         if mounts:
             exec_params['mounts'] = mounts
         if args.job_type[i] in ['perfgun', 'perfmeter']:
-            if path.exists('/tmp/config.yaml'):
-                with open('/tmp/config.yaml', 'r') as f:
-                    config_yaml = f.read()
-                exec_params['config_yaml'] = dumps(config_yaml)
-            else:
-                exec_params['config_yaml'] = {}
+            # if path.exists('/tmp/config.yaml'):
+            #     with open('/tmp/config.yaml', 'r') as f:
+            #         config_yaml = f.read()
+            #     exec_params['config_yaml'] = dumps(config_yaml)
+            # else:
+            #     exec_params['config_yaml'] = {}
+            exec_params['config_yaml'] = {}
             if LOKI_HOST:
                 exec_params['loki_host'] = LOKI_HOST
                 exec_params['loki_port'] = LOKI_PORT
@@ -452,26 +401,23 @@ def start_job(args=None):
                             "file": (f"{args.test_id}.zip", src_file)
                         }
                     )
-
         for _ in range(int(args.concurrency[i])):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
-                           'execution_params': exec_params, 'redis_connection': '', 'job_name': args.job_name}
-            celery_connection_cluster[str(channels[i])]['tasks'].append(
-                celery_connection_cluster[str(channels[i])]['app'].signature('tasks.execute', kwargs=task_kwargs))
+                           'execution_params': exec_params, 'job_name': args.job_name}
+            queue_name = args.channel[i] if len(args.channel) > i else "default"
+            tasks.append(Task("execute", queue=queue_name, task_kwargs=task_kwargs))
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
+        group_id = arbiter.squad(tasks, callback=Task("post_process", task_kwargs=post_processor_args))
         test_details = backend_perf_test_start_notify(args)
     elif args.job_type[0] == "observer":
+        group_id = arbiter.squad(tasks)
         test_details = frontend_perf_test_start_notify(args)
     else:
+        group_id = arbiter.squad(tasks)
         test_details = {}
-    groups = []
-    for each in celery_connection_cluster:
-        task_group = chord(
-            celery_connection_cluster[each]['tasks'], app=celery_connection_cluster[each]['app'])(
-            celery_connection_cluster[each]['post_processor'])
-        groups.append(task_group)
-    return groups, test_details
+
+    return arbiter, group_id, test_details
 
 
 def frontend_perf_test_start_notify(args):
@@ -618,8 +564,7 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
     return {"message": "Test is in progress", "code": 0}
 
 
-# TODO check for lost connection and retry
-def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
+def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
     result = 0
     test_start = time()
     max_duration = -1
@@ -627,28 +572,28 @@ def track_job(group, test_id=None, deviation=0.02, max_deviation=0.05):
         package = get_project_package()
         max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
 
-    while not group.ready():
+    while not arbiter.status(group_id)['state'] == 'done':
         sleep(60)
         if CHECK_SATURATION:
             test_status = check_test_is_saturating(test_id, deviation, max_deviation)
+            print("Status:")
             print(test_status)
             if test_status.get("code", 0) == 1:
-                kill_job(group)
+                print("Kill job")
+                arbiter.kill_group(group_id)
+                print("Terminated")
                 result = 1
         else:
             print("Still processing ...")
         if test_was_canceled(test_id) and result != 1:
             print("Test was canceled")
-            kill_job(group)
+            arbiter.kill_group(group_id)
+            print("Terminated")
             result = 1
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             print(f"Exceeded max test duration - {max_duration} sec")
-            kill_job(group)
-    if group.successful():
-        print("We are done successfully")
-    else:
-        print("We are failed badly")
-    group.forget()
+            arbiter.kill_group(group_id)
+    arbiter.close()
     return result
 
 
@@ -670,10 +615,9 @@ def _start_and_track(args=None):
         args = arg_parse()
     deviation = DEVIATION if args.deviation == 0 else args.deviation
     max_deviation = MAX_DEVIATION if args.max_deviation == 0 else args.max_deviation
-    groups, test_details = start_job(args)
+    arbiter, group_id, test_details = start_job(args)
     print("Job started, waiting for containers to settle ... ")
-    for group in groups:
-        track_job(group, test_details.get("id", None), deviation, max_deviation)
+    track_job(arbiter, group_id, test_details.get("id", None), deviation, max_deviation)
     if args.junit:
         print("Processing junit report ...")
         process_junit_report(args)
@@ -757,21 +701,6 @@ def download_junit_report(results_bucket, file_name, retry):
         return download_junit_report(results_bucket, file_name, retry)
     return junit_report
 
-
-def kill_job(group):
-    abbortables = []
-    _app = group.app
-    if not group.ready():
-        for task in group.parent.children:
-            abortable = AbortableAsyncResult(id=task.task_id, app=_app)
-            abortable.abort()
-            abbortables.append(abortable)
-    for _ in range(KILL_MAX_WAIT_TIME):
-        if all(task.result for task in abbortables):
-            break
-        sleep(60)
-        print("Aborting distributed tasks ... ")
-    return 0
 
 # if __name__ == "__main__":
 #     from control_tower.config_mock import BulkConfig

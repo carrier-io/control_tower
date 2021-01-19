@@ -27,7 +27,6 @@ def parse_args(events):
         "max_deviation": 0,
         "test_id": ""
     }
-    git = {}
     for event in events:
         if "container" in event:
             args["container"].append(event["container"])
@@ -53,7 +52,6 @@ def parse_args(events):
         args["deviation"] = event.get('deviation', 0)
         args["max_deviation"] = event.get('max_deviation', 0)
         args["test_id"] = event.get('test_id', '')
-        git = event.get('git', {})
         env_vars = event.get("cc_env_vars", None)
         if env_vars:
             for key, value in env_vars.items():
