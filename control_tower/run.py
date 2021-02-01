@@ -219,7 +219,7 @@ def append_test_config(args):
         }
         # merge params with test config
         test_config = requests.post(url, json=data, headers=headers).json()
-        # set args end env vars
+        # set args and env vars
         execution_params.append(loads(test_config["execution_params"]))
         concurrency.append(test_config["concurrency"])
         container.append(test_config["container"])
@@ -228,13 +228,12 @@ def append_test_config(args):
         for each in ["artifact", "bucket", "job_name", "email_recipients"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, test_config[each])
-        for each in ["container", "job_type"]:
+        for each in ["container", "job_type", "channel"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, [test_config[each]])
         for each in ["junit", "quality_gate", "save_reports", "jira", "report_portal", "email", "azure_devops"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, str2bool(test_config[each]))
-
         env_vars = test_config["cc_env_vars"]
         for key, value in env_vars.items():
             if not environ.get(key, None):
@@ -245,28 +244,36 @@ def append_test_config(args):
     setattr(args, "container", container)
     setattr(args, "job_type", job_type)
     if "git" in test_config.keys():
-        from control_tower.git_clone import clone_repo, post_artifact
-        git_setting = test_config["git"]
-        clone_repo(git_setting)
-        post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip")
-        setattr(args, "artifact", f"{BUILD_ID}.zip")
-        setattr(args, "bucket", "tests")
-        globals()["compile_and_run"] = "true"
+        process_git_repo(test_config, args)
     if str2bool(SPLIT_CSV):
-        from control_tower.csv_splitter import process_csv
-        globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, args.bucket, CSV_PATH,
-                                             args.concurrency[0])
-        concurrency, execution_params, job_type, container = [], [], [], []
-        for i in range(args.concurrency[0]):
-            concurrency.append(1)
-            execution_params.append(args.execution_params[0])
-            job_type.append(args.job_type[0])
-            container.append(args.container[0])
-        args.concurrency = concurrency
-        args.execution_params = execution_params
-        args.job_type = job_type
-        args.container = container
+        split_csv_file(args)
     return args
+
+
+def process_git_repo(test_config, args):
+    from control_tower.git_clone import clone_repo, post_artifact
+    git_setting = test_config["git"]
+    clone_repo(git_setting)
+    post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip")
+    setattr(args, "artifact", f"{BUILD_ID}.zip")
+    setattr(args, "bucket", "tests")
+    globals()["compile_and_run"] = "true"
+
+
+def split_csv_file(args):
+    from control_tower.csv_splitter import process_csv
+    globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, args.bucket, CSV_PATH,
+                                         args.concurrency[0])
+    concurrency, execution_params, job_type, container = [], [], [], []
+    for i in range(args.concurrency[0]):
+        concurrency.append(1)
+        execution_params.append(args.execution_params[0])
+        job_type.append(args.job_type[0])
+        container.append(args.container[0])
+    args.concurrency = concurrency
+    args.execution_params = execution_params
+    args.job_type = job_type
+    args.container = container
 
 
 def parse_id():
@@ -318,12 +325,6 @@ def start_job(args=None):
         if mounts:
             exec_params['mounts'] = mounts
         if args.job_type[i] in ['perfgun', 'perfmeter']:
-            # if path.exists('/tmp/config.yaml'):
-            #     with open('/tmp/config.yaml', 'r') as f:
-            #         config_yaml = f.read()
-            #     exec_params['config_yaml'] = dumps(config_yaml)
-            # else:
-            #     exec_params['config_yaml'] = {}
             exec_params['config_yaml'] = {}
             if LOKI_HOST:
                 exec_params['loki_host'] = LOKI_HOST
@@ -408,11 +409,11 @@ def start_job(args=None):
             tasks.append(Task("execute", queue=queue_name, task_kwargs=task_kwargs))
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
-        group_id = arbiter.squad(tasks, callback=Task("post_process", task_kwargs=post_processor_args))
         test_details = backend_perf_test_start_notify(args)
+        group_id = arbiter.squad(tasks, callback=Task("post_process", task_kwargs=post_processor_args))
     elif args.job_type[0] == "observer":
-        group_id = arbiter.squad(tasks)
         test_details = frontend_perf_test_start_notify(args)
+        group_id = arbiter.squad(tasks)
     else:
         group_id = arbiter.squad(tasks)
         test_details = {}
