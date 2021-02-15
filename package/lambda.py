@@ -78,15 +78,12 @@ def parse_args(events):
         azure_devops=args["azure_devops"],
         email_recipients=args["email_recipients"]
         )
-    if args.test_id:
-        from control_tower.run import append_test_config
-        args = append_test_config(args)
-    else:
-        from control_tower.run import str2bool, process_git_repo, split_csv_file
-        if "git" in events[0]:
-            process_git_repo(events[0], args)
-        if str2bool(os.environ.get('split_csv', 'False')):
-            split_csv_file(args)
+
+    from control_tower.run import str2bool, process_git_repo, split_csv_file
+    if "git" in events[0]:
+        process_git_repo(events[0], args)
+    if str2bool(os.environ.get('split_csv', 'False')):
+        split_csv_file(args)
     return args
 
 
