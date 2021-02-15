@@ -176,7 +176,6 @@ def append_test_config(args):
     test_config = requests.get(url, headers=headers).json()
     job_type = args.job_type[0] if args.job_type else test_config["job_type"]
     lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
-    globals()["report_type"] = lg_type
     params = {}
     execution_params = []
     concurrency = []
@@ -318,6 +317,7 @@ def start_job(args=None):
         "integration": integration,
         "email_recipients": args.email_recipients
     }
+    globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER, password=RABBIT_PASSWORD)
     tasks = []
     for i in range(len(args.concurrency)):
