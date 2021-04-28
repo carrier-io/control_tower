@@ -31,6 +31,7 @@ import sys
 RABBIT_USER = environ.get('RABBIT_USER', 'user')
 RABBIT_PASSWORD = environ.get('RABBIT_PASSWORD', 'password')
 RABBIT_HOST = environ.get('RABBIT_HOST', 'localhost')
+RABBIT_VHOST = environ.get('RABBIT_VHOST', 'carrier')
 RABBIT_PORT = environ.get('RABBIT_PORT', '5672')
 GALLOPER_WEB_HOOK = environ.get('GALLOPER_WEB_HOOK', None)
 LOKI_HOST = environ.get('loki_host', None)
@@ -89,6 +90,7 @@ ENV_VARS_MAPPING = {
     "RABBIT_USER": "RABBIT_USER",
     "RABBIT_PASSWORD": "RABBIT_PASSWORD",
     "RABBIT_HOST": "RABBIT_HOST",
+    "RABBIT_VHOST": "RABBIT_VHOST",
     "RABBIT_PORT": "RABBIT_PORT",
     "GALLOPER_WEB_HOOK": "GALLOPER_WEB_HOOK",
     "LOKI_PORT": "LOKI_PORT",
@@ -173,7 +175,12 @@ def append_test_config(args):
         headers['Authorization'] = f'bearer {TOKEN}'
     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/{args.test_id}"
     # get job_type
-    test_config = requests.get(url, headers=headers).json()
+    test_config = requests.get(url, headers=headers)
+    try:
+        test_config = test_config.json()
+    except:
+        print(test_config.text)
+        exit(1)
     job_type = args.job_type[0] if args.job_type else test_config["job_type"]
     lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
     params = {}
@@ -217,7 +224,12 @@ def append_test_config(args):
             "type": "config"
         }
         # merge params with test config
-        test_config = requests.post(url, json=data, headers=headers).json()
+        test_config = requests.post(url, json=data, headers=headers)
+        try:
+            test_config = test_config.json()
+        except:
+            print(test_config.text)
+            exit(1)
         # set args and env vars
         execution_params.append(loads(test_config["execution_params"]))
         concurrency.append(test_config["concurrency"])
@@ -263,16 +275,18 @@ def split_csv_file(args):
     from control_tower.csv_splitter import process_csv
     globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, args.bucket, CSV_PATH,
                                          args.concurrency[0])
-    concurrency, execution_params, job_type, container = [], [], [], []
+    concurrency, execution_params, job_type, container, channel = [], [], [], [], []
     for i in range(args.concurrency[0]):
         concurrency.append(1)
         execution_params.append(args.execution_params[0])
         job_type.append(args.job_type[0])
         container.append(args.container[0])
+        channel.append(args.channel[0])
     args.concurrency = concurrency
     args.execution_params = execution_params
     args.job_type = job_type
     args.container = container
+    args.channel = channel
 
 
 def parse_id():
@@ -301,6 +315,14 @@ def start_job(args=None):
             if allowable_load_generators != -1 and allowable_load_generators < each:
                 print(f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
                 exit(0)
+
+    # AWS integration
+    ec2_settings = {}
+    if args.channel[0] == "aws":
+        from control_tower.aws import request_spot_fleets
+        ec2_settings = request_spot_fleets(args, GALLOPER_URL, PROJECT_ID, TOKEN, RABBIT_HOST, RABBIT_USER,
+                                           RABBIT_PASSWORD, RABBIT_PORT, RABBIT_VHOST)
+
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
     integration = []
     for each in ["jira", "report_portal", "email", "azure_devops"]:
@@ -318,7 +340,7 @@ def start_job(args=None):
         "email_recipients": args.email_recipients
     }
     globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
-    arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER, password=RABBIT_PASSWORD)
+    arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER, password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
     tasks = []
     for i in range(len(args.concurrency)):
         exec_params = deepcopy(args.execution_params[i])
@@ -408,9 +430,15 @@ def start_job(args=None):
             queue_name = args.channel[i] if len(args.channel) > i else "default"
             tasks.append(Task("execute", queue=queue_name, task_kwargs=task_kwargs))
 
+    if ec2_settings:
+        finalizer_queue_name = ec2_settings.pop("finalizer_queue_name")
+        tasks.append(Task("terminate_ec2_instances", queue=finalizer_queue_name, task_type="finalize",
+                          task_kwargs=ec2_settings))
+
     if args.job_type[0] in ['perfgun', 'perfmeter']:
         test_details = backend_perf_test_start_notify(args)
-        group_id = arbiter.squad(tasks, callback=Task("post_process", task_kwargs=post_processor_args))
+        group_id = arbiter.squad(tasks, callback=Task("post_process", queue=args.channel[0],
+                                                      task_kwargs=post_processor_args))
     elif args.job_type[0] == "observer":
         test_details = frontend_perf_test_start_notify(args)
         group_id = arbiter.squad(tasks)
@@ -447,6 +475,10 @@ def frontend_perf_test_start_notify(args):
             headers['Authorization'] = f'bearer {TOKEN}'
 
         response = requests.post(f"{GALLOPER_URL}/api/v1/observer/{PROJECT_ID}", json=data, headers=headers)
+        try:
+            print(response.json()["message"])
+        except:
+            print(response.text)
         return response.json()
 
 
@@ -581,20 +613,32 @@ def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.0
             print(test_status)
             if test_status.get("code", 0) == 1:
                 print("Kill job")
-                arbiter.kill_group(group_id)
+                try:
+                    arbiter.kill_group(group_id)
+                except Exception as e:
+                    print(e)
                 print("Terminated")
                 result = 1
         else:
             print("Still processing ...")
         if test_was_canceled(test_id) and result != 1:
             print("Test was canceled")
-            arbiter.kill_group(group_id)
+            try:
+                arbiter.kill_group(group_id)
+            except Exception as e:
+                print(e)
             print("Terminated")
             result = 1
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             print(f"Exceeded max test duration - {max_duration} sec")
-            arbiter.kill_group(group_id)
-    arbiter.close()
+            try:
+                arbiter.kill_group(group_id)
+            except Exception as e:
+                print(e)
+    try:
+        arbiter.close()
+    except Exception as e:
+        print(e)
     return result
 
 
