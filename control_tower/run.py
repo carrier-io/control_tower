@@ -17,7 +17,7 @@ import argparse
 import os
 import tempfile
 import zipfile
-from arbiter import Arbiter, Task
+import arbiter
 from copy import deepcopy
 from json import loads, dumps
 from os import environ, path
@@ -340,7 +340,8 @@ def start_job(args=None):
         "email_recipients": args.email_recipients
     }
     globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
-    arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER, password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
+    arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
+                      password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
     tasks = []
     for i in range(len(args.concurrency)):
         exec_params = deepcopy(args.execution_params[i])
@@ -428,25 +429,25 @@ def start_job(args=None):
             task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
                            'execution_params': exec_params, 'job_name': args.job_name}
             queue_name = args.channel[i] if len(args.channel) > i else "default"
-            tasks.append(Task("execute", queue=queue_name, task_kwargs=task_kwargs))
+            tasks.append(arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
 
     if ec2_settings:
         finalizer_queue_name = ec2_settings.pop("finalizer_queue_name")
-        tasks.append(Task("terminate_ec2_instances", queue=finalizer_queue_name, task_type="finalize",
-                          task_kwargs=ec2_settings))
+        tasks.append(arbiter.Task("terminate_ec2_instances", queue=finalizer_queue_name, task_type="finalize",
+                                  task_kwargs=ec2_settings))
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
         test_details = backend_perf_test_start_notify(args)
-        group_id = arbiter.squad(tasks, callback=Task("post_process", queue=args.channel[0],
-                                                      task_kwargs=post_processor_args))
+        group_id = arb.squad(tasks, callback=arbiter.Task("post_process", queue=args.channel[0],
+                                                          task_kwargs=post_processor_args))
     elif args.job_type[0] == "observer":
         test_details = frontend_perf_test_start_notify(args)
-        group_id = arbiter.squad(tasks)
+        group_id = arb.squad(tasks)
     else:
-        group_id = arbiter.squad(tasks)
+        group_id = arb.squad(tasks)
         test_details = {}
 
-    return arbiter, group_id, test_details
+    return arb, group_id, test_details
 
 
 def frontend_perf_test_start_notify(args):
@@ -597,7 +598,7 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
     return {"message": "Test is in progress", "code": 0}
 
 
-def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
+def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
     result = 0
     test_start = time()
     max_duration = -1
@@ -605,7 +606,7 @@ def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.0
         package = get_project_package()
         max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
 
-    while not arbiter.status(group_id)['state'] == 'done':
+    while not bitter.status(group_id)['state'] == 'done':
         sleep(60)
         if CHECK_SATURATION:
             test_status = check_test_is_saturating(test_id, deviation, max_deviation)
@@ -614,7 +615,7 @@ def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.0
             if test_status.get("code", 0) == 1:
                 print("Kill job")
                 try:
-                    arbiter.kill_group(group_id)
+                    bitter.kill_group(group_id)
                 except Exception as e:
                     print(e)
                 print("Terminated")
@@ -624,7 +625,7 @@ def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.0
         if test_was_canceled(test_id) and result != 1:
             print("Test was canceled")
             try:
-                arbiter.kill_group(group_id)
+                bitter.kill_group(group_id)
             except Exception as e:
                 print(e)
             print("Terminated")
@@ -632,11 +633,11 @@ def track_job(arbiter, group_id, test_id=None, deviation=0.02, max_deviation=0.0
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             print(f"Exceeded max test duration - {max_duration} sec")
             try:
-                arbiter.kill_group(group_id)
+                bitter.kill_group(group_id)
             except Exception as e:
                 print(e)
     try:
-        arbiter.close()
+        bitter.close()
     except Exception as e:
         print(e)
     return result
@@ -660,9 +661,9 @@ def _start_and_track(args=None):
         args = arg_parse()
     deviation = DEVIATION if args.deviation == 0 else args.deviation
     max_deviation = MAX_DEVIATION if args.max_deviation == 0 else args.max_deviation
-    arbiter, group_id, test_details = start_job(args)
+    bitter, group_id, test_details = start_job(args)
     print("Job started, waiting for containers to settle ... ")
-    track_job(arbiter, group_id, test_details.get("id", None), deviation, max_deviation)
+    track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
     if args.junit:
         print("Processing junit report ...")
         process_junit_report(args)

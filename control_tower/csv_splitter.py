@@ -1,6 +1,7 @@
 import os
 import zipfile
 import requests
+import shutil
 
 
 def process_csv(galloper_url, token, project_id, artifact, bucket, csv_path, lg_count):
@@ -13,16 +14,24 @@ def process_csv(galloper_url, token, project_id, artifact, bucket, csv_path, lg_
 def download_artifact(galloper_url, project_id, token, bucket, artifact):
     endpoint = f'/api/v1/artifacts/{project_id}/{bucket}/{artifact}'
     headers = {'Authorization': f'bearer {token}'}
-    r = requests.get(f'{galloper_url}/{endpoint}', allow_redirects=True, headers=headers)
+    r = requests.get(f'{galloper_url}{endpoint}', allow_redirects=True, headers=headers)
     with open("/tmp/file_data.zip", 'wb') as file_data:
         file_data.write(r.content)
-    os.mkdir("/tmp/file_data")
+    try:
+        os.mkdir("/tmp/file_data")
+    except FileExistsError:
+        shutil.rmtree("/tmp/file_data")
+        os.mkdir("/tmp/file_data")
     with zipfile.ZipFile("/tmp/file_data.zip", 'r') as zip_ref:
         zip_ref.extractall("/tmp/file_data")
 
 
 def split_csv(csv_path, lg_count):
-    os.mkdir("/tmp/scv_files")
+    try:
+        os.mkdir("/tmp/scv_files")
+    except FileExistsError:
+        shutil.rmtree("/tmp/scv_files")
+        os.mkdir("/tmp/scv_files")
     with open(f"/tmp/file_data/{csv_path}", "r") as csv:
         csv_lines = csv.readlines()
     lines_per_generator = int(len(csv_lines)/lg_count)
