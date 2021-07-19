@@ -59,12 +59,12 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
                  f" -e CPU_CORES=1 -e RABBIT_HOST={rabbit_host} -e RABBIT_USER={rabbit_user}" \
                  f" -e RABBIT_PASSWORD={rabbit_password} -e VHOST={vhost} -e QUEUE_NAME={finalizer_queue_name}" \
                  f" -e LOKI_HOST={galloper_url.replace('https://', 'http://')} " \
-                 f"getcarrier/interceptor:latest\n"
+                 f"getcarrier/interceptor:2.5\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA={memory}g -e CPU_QUOTA={cpu}" \
                  f" -e CPU_CORES={workers_per_lg} -e RABBIT_HOST={rabbit_host} -e RABBIT_USER={rabbit_user}" \
                  f" -e RABBIT_PASSWORD={rabbit_password} -e VHOST={vhost} -e QUEUE_NAME={queue_name}" \
                  f" -e LOKI_HOST={galloper_url.replace('https://', 'http://')} " \
-                 f"getcarrier/interceptor:latest"
+                 f"getcarrier/interceptor:2.5"
     user_data = base64.b64encode(user_data.encode("ascii")).decode("ascii")
     config = {
         "Type": "request",
