@@ -419,7 +419,7 @@ def start_job(args=None):
                     headers = {
                         "Authorization": f"Bearer {TOKEN}"
                     }
-                    url = f"{GALLOPER_URL}/api/v1/artifacts/{PROJECT_ID}/sast/{args.test_id}.zip"
+                    url = f"{GALLOPER_URL}/api/v1/artifact/{PROJECT_ID}/sast/{args.test_id}.zip"
                     requests.post(
                         url, headers=headers, files={
                             "file": (f"{args.test_id}.zip", src_file)
@@ -733,7 +733,7 @@ def process_junit_report(args):
 
 def download_junit_report(results_bucket, file_name, retry):
     if PROJECT_ID:
-        url = f'{GALLOPER_URL}/api/v1/artifacts/{PROJECT_ID}/{results_bucket}/{file_name}'
+        url = f'{GALLOPER_URL}/api/v1/artifact/{PROJECT_ID}/{results_bucket}/{file_name}'
     else:
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}

@@ -99,7 +99,7 @@ def post_artifact(galloper_url, token, project_id, artifact):
         files = {'file': open(f"/tmp/{artifact}", 'rb')}
         headers = {'Authorization': f'bearer {token}'} if token else {}
         if project_id:
-            upload_url = f'{galloper_url}/api/v1/artifacts/{project_id}/tests/file'
+            upload_url = f'{galloper_url}/api/v1/artifact/{project_id}/tests'
         else:
             upload_url = f'{galloper_url}/artifacts/tests/upload'
         r = requests.post(upload_url, allow_redirects=True, files=files, headers=headers)
@@ -108,6 +108,6 @@ def post_artifact(galloper_url, token, project_id, artifact):
 
 
 def delete_artifact(galloper_url, token, project_id, artifact):
-    url = f'{galloper_url}/api/v1/artifacts/{project_id}/tests'
+    url = f'{galloper_url}/api/v1/artifact/{project_id}/tests'
     headers = {'Authorization': f'bearer {token}'} if token else {}
-    requests.delete(f'{url}/file?fname[]={artifact}', headers=headers)
+    requests.delete(f'{url}?fname[]={artifact}', headers=headers)

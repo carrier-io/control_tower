@@ -12,7 +12,7 @@ def process_csv(galloper_url, token, project_id, artifact, bucket, csv_path, lg_
 
 
 def download_artifact(galloper_url, project_id, token, bucket, artifact):
-    endpoint = f'/api/v1/artifacts/{project_id}/{bucket}/{artifact}'
+    endpoint = f'/api/v1/artifact/{project_id}/{bucket}/{artifact}'
     headers = {'Authorization': f'bearer {token}'}
     r = requests.get(f'{galloper_url}{endpoint}', allow_redirects=True, headers=headers)
     with open("/tmp/file_data.zip", 'wb') as file_data:
@@ -62,7 +62,7 @@ def split_csv(csv_path, lg_count):
 def upload_csv(galloper_url, token, project_id, csv_files, bucket, csv_path):
     csv_array = []
     headers = {'Authorization': f'bearer {token}'}
-    upload_url = f'{galloper_url}/api/v1/artifacts/{project_id}/{bucket}/file'
+    upload_url = f'{galloper_url}/api/v1/artifact/{project_id}/{bucket}'
     for each in csv_files:
         csv_name = each.replace("/tmp/scv_files/", "")
         files = {'file': open(each, 'rb')}
@@ -72,6 +72,6 @@ def upload_csv(galloper_url, token, project_id, csv_files, bucket, csv_path):
 
 
 def delete_csv(galloper_url, token, project_id, artifact):
-    url = f'{galloper_url}/api/v1/artifacts/{project_id}/tests'
+    url = f'{galloper_url}/api/v1/artifact/{project_id}/tests'
     headers = {'Authorization': f'bearer {token}'} if token else {}
-    requests.delete(f'{url}/file?fname[]={artifact}', headers=headers)
+    requests.delete(f'{url}?fname[]={artifact}', headers=headers)
