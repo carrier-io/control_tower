@@ -11,11 +11,12 @@ bucket = 'test'
 csv_path = "age.csv"
 lg_count = 5
 
+
 def test_split_csv():
     with requests_mock.Mocker() as mock:
-        mock.get(f'{galloper_url}/api/v1/artifacts/{project_id}/{bucket}/{artifact}',
+        mock.get(f'{galloper_url}/api/v1/artifact/{project_id}/{bucket}/{artifact}',
                  content=open('tests/test.zip', "rb").read(), status_code=200)
-        mock.post(f'{galloper_url}/api/v1/artifacts/{project_id}/{bucket}/file',
+        mock.post(f'{galloper_url}/api/v1/artifact/{project_id}/{bucket}',
                   json={"status": "mocked"}, status_code=200)
         process_csv(galloper_url, token, project_id, artifact, bucket, csv_path, lg_count)
         assert path.exists("/tmp/file_data/age.csv")
