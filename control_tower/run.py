@@ -493,9 +493,9 @@ def backend_perf_test_start_notify(args):
         if lg_type == 'jmeter':
             for i in range(tests_count):
                 exec_params = args.execution_params[i]['cmd'] + " "
-                test_type = re.findall('-Jtest.type=(.+?) ', exec_params)
+                test_type = re.findall('-Jtest_type=(.+?) ', exec_params)
                 test_type = test_type[0] if len(test_type) else 'demo'
-                environment = re.findall("-Jenv.type=(.+?) ", exec_params)
+                environment = re.findall("-Jenv_type=(.+?) ", exec_params)
                 environment = environment[0] if len(environment) else 'demo'
                 test_name = re.findall("-Jtest_name=(.+?) ", exec_params)
                 test_name = test_name[0] if len(test_name) else 'test'
@@ -752,7 +752,7 @@ def download_junit_report(results_bucket, file_name, retry):
 #     from control_tower.config_mock import BulkConfig
 #     args = BulkConfig(
 #         bulk_container=["getcarrier/perfmeter:latest"],
-#         bulk_params=[{"cmd": "-n -t /mnt/jmeter/FloodIO.jmx -Jtest.type=debug -Jenv.type=debug "
+#         bulk_params=[{"cmd": "-n -t /mnt/jmeter/FloodIO.jmx -Jtest_type=debug -Jenv_type=debug "
 #                              "-Jinflux.host= -JVUSERS=100 -JDURATION=1200 "
 #                              "-JRAMP_UP=60 -Jtest_name=Flood"}],
 #         job_type=["perfmeter"],
