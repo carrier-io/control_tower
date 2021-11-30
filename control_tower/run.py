@@ -38,6 +38,7 @@ LOKI_HOST = environ.get('loki_host', None)
 LOKI_PORT = environ.get('loki_port', '3100')
 GALLOPER_URL = environ.get('galloper_url', None)
 PROJECT_ID = environ.get('project_id', None)
+REPORT_ID = environ.get('REPORT_ID', None)
 BUCKET = environ.get('bucket', None)
 TEST = environ.get('artifact', None)
 ADDITIONAL_FILES = environ.get('additional_files', None)
@@ -437,9 +438,13 @@ def start_job(args=None):
                                   task_kwargs=ec2_settings))
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
-        test_details = backend_perf_test_start_notify(args)
         group_id = arb.squad(tasks, callback=arbiter.Task("post_process", queue=args.channel[0],
                                                           task_kwargs=post_processor_args))
+        if REPORT_ID:
+            test_details = {"id": REPORT_ID}
+        else:
+            test_details = backend_perf_test_start_notify(args)
+
     elif args.job_type[0] == "observer":
         test_details = frontend_perf_test_start_notify(args)
         group_id = arb.squad(tasks)
