@@ -321,8 +321,14 @@ def start_job(args=None):
     ec2_settings = {}
     if args.channel[0] == "aws":
         from control_tower.aws import request_spot_fleets
-        ec2_settings = request_spot_fleets(args, GALLOPER_URL, PROJECT_ID, TOKEN, RABBIT_HOST, RABBIT_USER,
-                                           RABBIT_PASSWORD, RABBIT_PORT, RABBIT_VHOST)
+        update_test_status(status="Preparing...", percentage=5, description="Request AWS spot instances")
+        try:
+            ec2_settings = request_spot_fleets(args, GALLOPER_URL, PROJECT_ID, TOKEN, RABBIT_HOST, RABBIT_USER,
+                                               RABBIT_PASSWORD, RABBIT_PORT, RABBIT_VHOST)
+        except Exception as e:
+            print(e)
+            update_test_status(status="Error", percentage=100, description=str(e))
+            exit(1)
 
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
     integration = []
@@ -342,7 +348,7 @@ def start_job(args=None):
     }
     globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                      password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
+                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
     tasks = []
     for i in range(len(args.concurrency)):
         exec_params = deepcopy(args.execution_params[i])
@@ -366,6 +372,8 @@ def start_job(args=None):
                 exec_params['additional_files'] = dumps(exec_params['additional_files']).replace("'", "\"")
             if JVM_ARGS:
                 exec_params['JVM_ARGS'] = JVM_ARGS
+            if REPORT_ID:
+                exec_params['report_id'] = REPORT_ID
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
@@ -438,9 +446,16 @@ def start_job(args=None):
                                   task_kwargs=ec2_settings))
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
-        group_id = arb.squad(tasks, callback=arbiter.Task("post_process", queue=args.channel[0],
-                                                          task_kwargs=post_processor_args))
+        try:
+            group_id = arb.squad(tasks, callback=arbiter.Task("post_process", queue=args.channel[0],
+                                                              task_kwargs=post_processor_args))
+        except NameError as e:
+            update_test_status(status="Error", percentage=100, description=str(e))
+            print(e)
+            exit(1)
         if REPORT_ID:
+            update_test_status(status="Preparing...", percentage=5,
+                               description="We have enough workers to run the test. The test will start soon")
             test_details = {"id": REPORT_ID}
         else:
             test_details = backend_perf_test_start_notify(args)
@@ -453,6 +468,17 @@ def start_job(args=None):
         test_details = {}
 
     return arb, group_id, test_details
+
+
+def update_test_status(status, percentage, description):
+    data = {"test_status": {"status": status, "percentage": percentage, "description": description}}
+    headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
+    url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{REPORT_ID}/status'
+    response = requests.put(url, json=data, headers=headers)
+    try:
+        print(response.json()["message"])
+    except:
+        print(response.text)
 
 
 def frontend_perf_test_start_notify(args):
@@ -536,9 +562,8 @@ def backend_perf_test_start_notify(args):
             test_id = ""
         data = {'test_id': test_id, 'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
                 'duration': duration, 'vusers': users_count, 'environment': environment, 'start_time': start_time,
-                'missed': 0, 'status': 'In progress'}
-        if release_id:
-            data['release_id'] = release_id
+                'missed': 0, 'test_status': {'status': 'Preparing...', 'percentage': 5,
+                                             'description': 'The test will start soon'}}
 
         headers = {'content-type': 'application/json'}
         if TOKEN:
@@ -651,7 +676,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
 def test_was_canceled(test_id):
     try:
         if test_id and PROJECT_ID and GALLOPER_URL and report_type:
-            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{REPORT_TYPE_MAPPING.get(report_type)}/{test_id}/status'
+            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{test_id}/status'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
@@ -751,7 +776,6 @@ def download_junit_report(results_bucket, file_name, retry):
         sleep(10)
         return download_junit_report(results_bucket, file_name, retry)
     return junit_report
-
 
 # if __name__ == "__main__":
 #     from control_tower.config_mock import BulkConfig
