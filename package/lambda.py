@@ -2,6 +2,7 @@ import os
 from traceback import format_exc
 from json import loads
 from control_tower.config_mock import BulkConfig
+from time import sleep
 
 
 def parse_args(events):
@@ -82,7 +83,7 @@ def parse_args(events):
     from control_tower.run import str2bool, process_git_repo, split_csv_file
     if "git" in events[0]:
         process_git_repo(events[0], args)
-    if str2bool(os.environ.get('split_csv', 'False')):
+    if loads(os.environ.get('csv_files', '{}')):
         split_csv_file(args)
     return args
 

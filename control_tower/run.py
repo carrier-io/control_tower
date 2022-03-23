@@ -58,8 +58,7 @@ DEVIATION = environ.get('dev', 0.02)
 MAX_DEVIATION = environ.get('max_dev', 0.05)
 U_AGGR = environ.get('u_aggr', 1)
 KILL_MAX_WAIT_TIME = 10
-SPLIT_CSV = environ.get('split_csv', 'False')
-CSV_PATH = environ.get('csv_path', '')
+CSV_FILES = loads(environ.get('csv_files', '{}'))
 report_type = ""
 
 JOB_TYPE_MAPPING = {
@@ -257,7 +256,7 @@ def append_test_config(args):
     setattr(args, "job_type", job_type)
     if "git" in test_config.keys():
         process_git_repo(test_config, args)
-    if str2bool(SPLIT_CSV):
+    if CSV_FILES:
         split_csv_file(args)
     return args
 
@@ -274,7 +273,7 @@ def process_git_repo(test_config, args):
 
 def split_csv_file(args):
     from control_tower.csv_splitter import process_csv
-    globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, args.bucket, CSV_PATH,
+    globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, args.bucket, CSV_FILES,
                                          args.concurrency[0])
     concurrency, execution_params, job_type, container, channel = [], [], [], [], []
     for i in range(args.concurrency[0]):
@@ -362,11 +361,11 @@ def start_job(args=None):
             if ADDITIONAL_FILES:
                 exec_params['additional_files'] = ADDITIONAL_FILES
             if globals().get("csv_array"):
-                if 'additional_files' in exec_params:
-                    exec_params['additional_files'] = {**exec_params['additional_files'],
-                                                       **globals().get("csv_array")[i]}
-                else:
-                    exec_params['additional_files'] = globals().get("csv_array")[i]
+                for _file in globals().get("csv_array")[i]:
+                    if 'additional_files' in exec_params:
+                        exec_params['additional_files'] = {**exec_params['additional_files'], **_file}
+                    else:
+                        exec_params['additional_files'] = _file
 
             if 'additional_files' in exec_params:
                 exec_params['additional_files'] = dumps(exec_params['additional_files']).replace("'", "\"")
@@ -706,8 +705,9 @@ def _start_and_track(args=None):
     if globals().get("csv_array"):
         from control_tower.csv_splitter import delete_csv
         for each in globals().get("csv_array"):
-            csv_name = list(each.keys())[0].replace("tests/", "")
-            delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
+            for _ in each:
+                csv_name = list(_.keys())[0].replace("tests/", "")
+                delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
 
 
 def start_and_track(args=None):
