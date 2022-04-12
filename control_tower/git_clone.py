@@ -67,7 +67,11 @@ def clone_repo(git_settings):
     if git_settings.get("repo_key"):
         key = git_settings.get("repo_key").replace("|", "\n")
         key_obj = io.StringIO(key)
-        pkey = paramiko.RSAKey.from_private_key(key_obj)
+        if "BEGIN RSA PRIVATE KEY" in key:
+            pkey = paramiko.RSAKey.from_private_key(key_obj, auth_args.get("password", None))
+        else:
+            pkey = paramiko.Ed25519Key.from_private_key(key_obj, auth_args.get("password", None))
+
         # Patch paramiko to use our key
         paramiko.client.SSHClient._auth = _paramiko_client_SSHClient_auth(paramiko.client.SSHClient._auth, pkey)
     # Clone repository
