@@ -13,7 +13,7 @@ ec2 = None
 def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabbit_user, rabbit_password, rabbit_port,
                         vhost):
     print("Requesting Spot Fleets...")
-    secrets_url = f"{galloper_url}/api/v1/secrets/{project_id}/aws"
+    secrets_url = f"{galloper_url}/api/v1/secrets/secret/{project_id}/aws"
     headers = {
         'Authorization': f'bearer {token}',
         'Content-type': 'application/json'

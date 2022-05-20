@@ -173,7 +173,7 @@ def append_test_config(args):
     headers = {'content-type': 'application/json'}
     if TOKEN:
         headers['Authorization'] = f'bearer {TOKEN}'
-    url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/{args.test_id}"
+    url = f"{GALLOPER_URL}/api/v1/backend_performance/test_type/{PROJECT_ID}/{args.test_id}"
     # get job_type
     test_config = requests.get(url, headers=headers)
     try:
@@ -192,7 +192,7 @@ def append_test_config(args):
     # prepare params
     for i in range(tests_count):
         if lg_type == 'jmeter':
-            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
+            url = f"{GALLOPER_URL}/api/v1/backend_performance/test/{PROJECT_ID}/{args.test_id}"
             if args.execution_params and "cmd" in args.execution_params[i].keys():
                 exec_params = args.execution_params[i]['cmd'].split("-J")
                 for each in exec_params:
@@ -200,19 +200,19 @@ def append_test_config(args):
                         _ = each.split("=")
                         params[_[0]] = str(_[1]).strip()
         elif lg_type == 'gatling':
-            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/backend/{args.test_id}"
+            url = f"{GALLOPER_URL}/api/v1/backend_performance/test/{PROJECT_ID}/{args.test_id}"
             if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[i].keys():
                 exec_params = args.execution_params[i]['GATLING_TEST_PARAMS'].split("-D")
                 for each in exec_params:
                     if "=" in each:
                         _ = each.split("=")
                         params[_[0]] = str(_[1]).strip()
-        elif lg_type == 'observer':
-            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
+        # elif lg_type == 'observer':
+        #     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
         elif lg_type == 'dast':
-            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/dast/{args.test_id}"
-        elif lg_type == 'sast':
-            url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
+            url = f"{GALLOPER_URL}/api/v1/security/test/{PROJECT_ID}/{args.test_id}"
+        # elif lg_type == 'sast':
+        #     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
         else:
             print(f"No data found for test_id={args.test_id}")
             exit(1)
@@ -427,7 +427,7 @@ def start_job(args=None):
                     headers = {
                         "Authorization": f"Bearer {TOKEN}"
                     }
-                    url = f"{GALLOPER_URL}/api/v1/artifact/{PROJECT_ID}/sast/{args.test_id}.zip"
+                    url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/sast/{args.test_id}.zip"
                     requests.post(
                         url, headers=headers, files={
                             "file": (f"{args.test_id}.zip", src_file)
@@ -472,7 +472,7 @@ def start_job(args=None):
 def update_test_status(status, percentage, description):
     data = {"test_status": {"status": status, "percentage": percentage, "description": description}}
     headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
-    url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{REPORT_ID}/status'
+    url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{REPORT_ID}'
     response = requests.put(url, json=data, headers=headers)
     try:
         print(response.json()["message"])
@@ -567,10 +567,7 @@ def backend_perf_test_start_notify(args):
         headers = {'content-type': 'application/json'}
         if TOKEN:
             headers['Authorization'] = f'bearer {TOKEN}'
-        if PROJECT_ID:
-            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}'
-        else:
-            url = f'{GALLOPER_URL}/api/report'
+        url = f'{GALLOPER_URL}/api/v1/backend_performance/reports/{PROJECT_ID}'
 
         response = requests.post(url, json=data, headers=headers)
 
@@ -588,7 +585,7 @@ def backend_perf_test_start_notify(args):
 
 def get_project_package():
     try:
-        url = f"{GALLOPER_URL}/api/v1/project/{PROJECT_ID}"
+        url = f"{GALLOPER_URL}/api/v1/projects/project/{PROJECT_ID}"
         headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
         package = requests.get(url, headers=headers).json()["package"]
     except:
@@ -675,7 +672,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
 def test_was_canceled(test_id):
     try:
         if test_id and PROJECT_ID and GALLOPER_URL and report_type:
-            url = f'{GALLOPER_URL}/api/v1/reports/{PROJECT_ID}/{test_id}/status'
+            url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{test_id}'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
@@ -763,7 +760,7 @@ def process_junit_report(args):
 
 def download_junit_report(results_bucket, file_name, retry):
     if PROJECT_ID:
-        url = f'{GALLOPER_URL}/api/v1/artifact/{PROJECT_ID}/{results_bucket}/{file_name}'
+        url = f'{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/{results_bucket}/{file_name}'
     else:
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
