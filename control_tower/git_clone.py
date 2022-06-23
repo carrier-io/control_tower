@@ -9,6 +9,7 @@ from paramiko.message import Message
 import zipfile
 from traceback import format_exc
 import requests
+from control_tower.run import logger
 
 
 def _dulwich_repo_get_default_identity():
@@ -36,7 +37,7 @@ def _paramiko_client_SSHClient_auth(original_auth, forced_pkey):
 
 
 def clone_repo(git_settings):
-    print("Cloning git repo ...")
+    logger.info("Cloning git repo ...")
     # Patch dulwich to work without valid UID/GID
     dulwich.repo.__original__get_default_identity = dulwich.repo._get_default_identity
     dulwich.repo._get_default_identity = _dulwich_repo_get_default_identity
@@ -84,7 +85,7 @@ def clone_repo(git_settings):
         repository.refs.set_symbolic_ref(b"HEAD", b"refs/heads/" + branch)
         repository.reset_index(repository[b"HEAD"].tree)
     except KeyError:
-        print(f"The {branch} branch does not exist")
+        logger.error(f"The {branch} branch does not exist")
         exit(1)
 
 
@@ -105,7 +106,7 @@ def post_artifact(galloper_url, token, project_id, artifact):
         upload_url = f'{galloper_url}/api/v1/artifacts/artifacts/{project_id}/tests'
         r = requests.post(upload_url, allow_redirects=True, files=files, headers=headers)
     except Exception:
-        print(format_exc())
+        logger.error(format_exc())
 
 
 def delete_artifact(galloper_url, token, project_id, artifact):

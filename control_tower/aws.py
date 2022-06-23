@@ -5,6 +5,7 @@ import requests
 from time import sleep
 from uuid import uuid4
 from arbiter import Arbiter
+from control_tower.run import logger
 
 
 ec2 = None
@@ -12,7 +13,7 @@ ec2 = None
 
 def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabbit_user, rabbit_password, rabbit_port,
                         vhost):
-    print("Requesting Spot Fleets...")
+    logger.info("Requesting Spot Fleets...")
     secrets_url = f"{galloper_url}/api/v1/secrets/secret/{project_id}/aws"
     headers = {
         'Authorization': f'bearer {token}',
@@ -22,7 +23,7 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
     try:
         aws_config = loads(requests.get(secrets_url, headers=headers).json()["secret"])
     except (AttributeError, JSONDecodeError):
-        print("Failed to load AWS config for the project")
+        logger.error("Failed to load AWS config for the project")
         exit(1)
     queue_name = str(uuid4())
     finalizer_queue_name = str(uuid4())
@@ -36,16 +37,16 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
     cpu += 0.5
     memory += 1
     if cpu > 8:
-        print("Max CPU cores limit should be less then 8")
+        logger.error("Max CPU cores limit should be less then 8")
         exit(1)
     if memory > 30:
-        print("Max memory limit should be less then 30g")
+        logger.error("Max memory limit should be less then 30g")
         exit(1)
     total_cpu_cores = round(cpu * total_workers + 0.1)
     workers_per_lg = 2 if total_cpu_cores > 2 and memory < 8 else 1
     lg_count = round(total_workers / workers_per_lg + 0.1)
-    print(f"CPU per worker - {cpu}. Memory per worker - {memory}g")
-    print(f"Instances count - {lg_count}")
+    logger.info(f"CPU per worker - {cpu}. Memory per worker - {memory}g")
+    logger.info(f"Instances count - {lg_count}")
     global ec2
     ec2 = boto3.client('ec2', aws_access_key_id=aws_config.get("aws_access_key"),
                        aws_secret_access_key=aws_config["aws_secret_access_key"], region_name=aws_config["region_name"])
@@ -92,8 +93,8 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
                 specs["SecurityGroups"].append({"GroupId": sg})
         config["LaunchSpecifications"].append(specs)
     response = ec2.request_spot_fleet(SpotFleetRequestConfig=config)
-    print("*********************************************")
-    print(response)
+    logger.info("*********************************************")
+    logger.info(response)
     fleet_id = response["SpotFleetRequestId"]
     arbiter = Arbiter(host=rabbit_host, port=rabbit_port, user=rabbit_user, password=rabbit_password, vhost=vhost)
     retry = 10
@@ -102,16 +103,16 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
             workers = arbiter.workers()
         except:
             workers = {}
-        print(workers)
+        logger.info(workers)
         if args.channel[0] in workers and workers[args.channel[0]]["available"] >= total_workers:
-            print("Spot Fleet instances are ready")
+            logger.info("Spot Fleet instances are ready")
             break
         else:
-            print("Waiting for the Spot Fleet instances to start ...")
+            logger.info("Waiting for the Spot Fleet instances to start ...")
             sleep(60)
             retry -= 1
             if retry == 0:
-                print("Spot instances set up timeout - 600 seconds ...")
+                logger.info("Spot instances set up timeout - 600 seconds ...")
                 terminate_spot_instances(fleet_id)
                 exit(1)
     ec2_settings = {
@@ -125,7 +126,7 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
 
 
 def terminate_spot_instances(fleet_id):
-    print("Terminating Spot instances...")
+    logger.info("Terminating Spot instances...")
     global ec2
     response = ec2.cancel_spot_fleet_requests(
         SpotFleetRequestIds=[
@@ -133,7 +134,7 @@ def terminate_spot_instances(fleet_id):
         ],
         TerminateInstances=True
     )
-    print(response)
+    logger.info(response)
 
 
 def get_instance_types(cpu, memory, workers_per_lg):
@@ -170,6 +171,6 @@ def get_instance_types(cpu, memory, workers_per_lg):
         memory_key = "32g"
         cpu_key = "8 cpu"
 
-    print(f"Instance types for {cpu_key} and {memory_key}:")
-    print(instances[cpu_key][memory_key])
+    logger.info(f"Instance types for {cpu_key} and {memory_key}:")
+    logger.info(instances[cpu_key][memory_key])
     return instances[cpu_key][memory_key]

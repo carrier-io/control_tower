@@ -14,6 +14,7 @@ RUN pip install paramiko==2.6.0
 RUN pip install boto3==1.17.34
 RUN apk del .build-deps gcc musl-dev libffi-dev openssl-dev python3-dev make
 RUN pip install git+https://github.com/carrier-io/arbiter.git
+RUN pip install git+https://github.com/carrier-io/loki_logger.git
 ADD setup.py /tmp/setup.py
 ADD requirements.txt /tmp/requirements.txt
 COPY control_tower /tmp/control_tower

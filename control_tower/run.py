@@ -112,6 +112,14 @@ ENV_VARS_MAPPING = {
     "csv_path": "CSV_PATH"
 }
 
+loki_context = {"url": f"{LOKI_HOST.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
+                "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
+                                                        "project": PROJECT_ID,
+                                                        "report_id": REPORT_ID}}
+from centry_loki import log_loki
+
+logger = log_loki.get_logger(loki_context)
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -179,7 +187,7 @@ def append_test_config(args):
     try:
         test_config = test_config.json()
     except:
-        print(test_config.text)
+        logger.info(test_config.text)
         exit(1)
     job_type = args.job_type[0] if args.job_type else test_config["job_type"]
     lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
@@ -214,7 +222,7 @@ def append_test_config(args):
         # elif lg_type == 'sast':
         #     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
         else:
-            print(f"No data found for test_id={args.test_id}")
+            logger.info(f"No data found for test_id={args.test_id}")
             exit(1)
 
         data = {
@@ -228,7 +236,7 @@ def append_test_config(args):
         try:
             test_config = test_config.json()
         except:
-            print(test_config.text)
+            logger.info(test_config.text)
             exit(1)
         # set args and env vars
         execution_params.append(loads(test_config["execution_params"]))
@@ -313,7 +321,8 @@ def start_job(args=None):
         allowable_load_generators = PROJECT_PACKAGE_MAPPER.get(package)["load_generators"]
         for each in args.concurrency:
             if allowable_load_generators != -1 and allowable_load_generators < each:
-                print(f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
+                logger.info(
+                    f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
                 exit(0)
 
     # AWS integration
@@ -325,7 +334,7 @@ def start_job(args=None):
             ec2_settings = request_spot_fleets(args, GALLOPER_URL, PROJECT_ID, TOKEN, RABBIT_HOST, RABBIT_USER,
                                                RABBIT_PASSWORD, RABBIT_PORT, RABBIT_VHOST)
         except Exception as e:
-            print(e)
+            logger.info(e)
             update_test_status(status="Error", percentage=100, description=str(e))
             exit(1)
 
@@ -408,7 +417,7 @@ def start_job(args=None):
 
         elif args.job_type[i] == "sast":
             if "code_path" in exec_params:
-                print("Uploading code artifact to Galloper ...")
+                logger.info("Uploading code artifact to Galloper ...")
                 with tempfile.TemporaryFile() as src_file:
                     with zipfile.ZipFile(src_file, "w", zipfile.ZIP_DEFLATED) as zip_file:
                         src_dir = os.path.abspath("/code")
@@ -450,7 +459,7 @@ def start_job(args=None):
                                                               task_kwargs=post_processor_args))
         except NameError as e:
             update_test_status(status="Error", percentage=100, description=str(e))
-            print(e)
+            logger.info(e)
             exit(1)
         if REPORT_ID:
             update_test_status(status="Preparing...", percentage=5,
@@ -475,9 +484,9 @@ def update_test_status(status, percentage, description):
     url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{REPORT_ID}'
     response = requests.put(url, json=data, headers=headers)
     try:
-        print(response.json()["message"])
+        logger.info(response.json()["message"])
     except:
-        print(response.text)
+        logger.info(response.text)
 
 
 def frontend_perf_test_start_notify(args):
@@ -507,9 +516,9 @@ def frontend_perf_test_start_notify(args):
 
         response = requests.post(f"{GALLOPER_URL}/api/v1/observer/{PROJECT_ID}", json=data, headers=headers)
         try:
-            print(response.json()["message"])
+            logger.info(response.json()["message"])
         except:
-            print(response.text)
+            logger.info(response.text)
         return response.json()
 
 
@@ -572,12 +581,12 @@ def backend_perf_test_start_notify(args):
         response = requests.post(url, json=data, headers=headers)
 
         try:
-            print(response.json()["message"])
+            logger.info(response.json()["message"])
         except:
-            print(response.text)
+            logger.info(response.text)
 
         if response.status_code == requests.codes.forbidden:
-            print(response.json().get('Forbidden'))
+            logger.info(response.json().get('Forbidden'))
             exit(126)
         return response.json()
     return {}
@@ -636,36 +645,36 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
         sleep(60)
         if CHECK_SATURATION:
             test_status = check_test_is_saturating(test_id, deviation, max_deviation)
-            print("Status:")
-            print(test_status)
+            logger.info("Status:")
+            logger.info(test_status)
             if test_status.get("code", 0) == 1:
-                print("Kill job")
+                logger.info("Kill job")
                 try:
                     bitter.kill_group(group_id)
                 except Exception as e:
-                    print(e)
-                print("Terminated")
+                    logger.info(e)
+                logger.info("Terminated")
                 result = 1
         else:
-            print("Still processing ...")
+            logger.info("Still processing ...")
         if test_was_canceled(test_id) and result != 1:
-            print("Test was canceled")
+            logger.info("Test was canceled")
             try:
                 bitter.kill_group(group_id)
             except Exception as e:
-                print(e)
-            print("Terminated")
+                logger.info(e)
+            logger.info("Terminated")
             result = 1
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
-            print(f"Exceeded max test duration - {max_duration} sec")
+            logger.info(f"Exceeded max test duration - {max_duration} sec")
             try:
                 bitter.kill_group(group_id)
             except Exception as e:
-                print(e)
+                logger.info(e)
     try:
         bitter.close()
     except Exception as e:
-        print(e)
+        logger.info(e)
     return result
 
 
@@ -688,13 +697,13 @@ def _start_and_track(args=None):
     deviation = DEVIATION if args.deviation == 0 else args.deviation
     max_deviation = MAX_DEVIATION if args.max_deviation == 0 else args.max_deviation
     bitter, group_id, test_details = start_job(args)
-    print("Job started, waiting for containers to settle ... ")
+    logger.info("Job started, waiting for containers to settle ... ")
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
     if args.junit:
-        print("Processing junit report ...")
+        logger.info("Processing junit report ...")
         process_junit_report(args)
     if args.job_type[0] in ["dast", "sast"] and args.quality_gate:
-        print("Processing security quality gate ...")
+        logger.info("Processing security quality gate ...")
         process_security_quality_gate(args)
     if args.artifact == f"{BUILD_ID}.zip":
         from control_tower.git_clone import delete_artifact
@@ -725,12 +734,12 @@ def process_security_quality_gate(args):
         args.job_type[0], f"{args.test_id}_quality_gate_report.json", retry=12
     )
     if not quality_gate_data:
-        print("No security quality gate data found")
+        logger.info("No security quality gate data found")
         return
     quality_gate = loads(quality_gate_data.text)
     if quality_gate["quality_gate_stats"]:
         for line in quality_gate["quality_gate_stats"]:
-            print(line)
+            logger.info(line)
     if quality_gate["fail_quality_gate"]:
         exit(1)
 
@@ -747,14 +756,14 @@ def process_junit_report(args):
         total = int(re.findall("testsuites .+? tests=\"(.+?)\"", junit_report.text)[0])
         errors = int(re.findall("testsuites .+? errors=\"(.+?)\"", junit_report.text)[0])
         skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", junit_report.text)[0])
-        print("**********************************************")
-        print("* Performance testing jUnit report | Carrier *")
-        print("**********************************************")
-        print(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
+        logger.info("**********************************************")
+        logger.info("* Performance testing jUnit report | Carrier *")
+        logger.info("**********************************************")
+        logger.info(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
         if args.quality_gate:
             rate = round(float(failed / total) * 100, 2) if total != 0 else 0
             if rate > 20:
-                print("Missed threshold rate is {}".format(rate), file=sys.stderr)
+                logger.info("Missed threshold rate is {}".format(rate), file=sys.stderr)
                 exit(1)
 
 
@@ -766,7 +775,7 @@ def download_junit_report(results_bucket, file_name, retry):
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     junit_report = requests.get(url, headers=headers, allow_redirects=True)
     if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
-        print("Waiting for report to be accessible ...")
+        logger.info("Waiting for report to be accessible ...")
         retry -= 1
         if retry == 0:
             return None
