@@ -1,6 +1,6 @@
 requests-mock==1.9.2
 dulwich==0.19.11
-paramiko==2.6.0
+paramiko==2.10.1
 boto3==1.17.34
 mock==4.0.3
 git+https://github.com/carrier-io/arbiter.git@v.2.5
