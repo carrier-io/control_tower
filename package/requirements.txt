@@ -1,6 +1,6 @@
 requests==2.25.0
 dulwich==0.19.11
-paramiko==2.6.0
+paramiko==2.10.1
 boto3==1.17.34
 git+https://github.com/carrier-io/arbiter.git
 git+https://github.com/carrier-io/control_tower.git
