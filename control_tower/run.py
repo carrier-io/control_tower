@@ -181,7 +181,7 @@ def append_test_config(args):
     headers = {'content-type': 'application/json'}
     if TOKEN:
         headers['Authorization'] = f'bearer {TOKEN}'
-    url = f"{GALLOPER_URL}/api/v1/backend_performance/test_type/{PROJECT_ID}/{args.test_id}"
+    url = f"{GALLOPER_URL}/api/v1/shared/job_type/{PROJECT_ID}/{args.test_id}"
     # get job_type
     test_config = requests.get(url, headers=headers)
     try:
