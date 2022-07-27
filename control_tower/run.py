@@ -78,6 +78,14 @@ REPORT_TYPE_MAPPING = {
     "sast": "security"
 }
 
+CENTRY_MODULES_MAPPING = {
+    "gatling": "backend_performance",
+    "jmeter": "backend_performance",
+    "observer": "ui_performance",
+    "dast": "security",
+    "sast": "security"
+}
+
 PROJECT_PACKAGE_MAPPER = {
     "basic": {"duration": 1800, "load_generators": 1},
     "startup": {"duration": 7200, "load_generators": 5},
@@ -407,7 +415,10 @@ def start_job(args=None):
             exec_params["JOB_NAME"] = args.job_name
             exec_params['ARTIFACT'] = args.artifact
             exec_params['TESTS_BUCKET'] = args.bucket
-            exec_params['REPORT_ID'] = BUILD_ID.replace("build_", "")
+            if REPORT_ID:
+                exec_params['REPORT_ID'] = REPORT_ID
+            else:
+                exec_params['REPORT_ID'] = BUILD_ID.replace("build_", "")
 
             if TOKEN:
                 exec_params['token'] = TOKEN
@@ -469,7 +480,12 @@ def start_job(args=None):
             test_details = backend_perf_test_start_notify(args)
 
     elif args.job_type[0] == "observer":
-        test_details = frontend_perf_test_start_notify(args)
+        if REPORT_ID:
+            update_test_status(status="Preparing...", percentage=5,
+                               description="We have enough workers to run the test. The test will start soon")
+            test_details = {"id": REPORT_ID}
+        else:
+            test_details = frontend_perf_test_start_notify(args)
         group_id = arb.squad(tasks)
     else:
         group_id = arb.squad(tasks)
@@ -479,9 +495,10 @@ def start_job(args=None):
 
 
 def update_test_status(status, percentage, description):
+    module = CENTRY_MODULES_MAPPING.get(report_type)
     data = {"test_status": {"status": status, "percentage": percentage, "description": description}}
     headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
-    url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{REPORT_ID}'
+    url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
     response = requests.put(url, json=data, headers=headers)
     try:
         logger.info(response.json()["message"])
@@ -681,7 +698,8 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
 def test_was_canceled(test_id):
     try:
         if test_id and PROJECT_ID and GALLOPER_URL and report_type:
-            url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{test_id}'
+            module = CENTRY_MODULES_MAPPING.get(report_type)
+            url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{test_id}'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
