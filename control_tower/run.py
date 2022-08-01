@@ -347,10 +347,9 @@ def start_job(args=None):
             exit(1)
 
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
-    integration = []
-    for each in ["jira", "report_portal", "email", "azure_devops"]:
-        if getattr(args, each):
-            integration.append(each)
+    # for each in ["jira", "report_portal", "email", "azure_devops"]:
+    #     if getattr(args, each):
+    #         integration.append(each)
     post_processor_args = {
         "galloper_url": GALLOPER_URL,
         "project_id": PROJECT_ID,
@@ -359,7 +358,7 @@ def start_job(args=None):
         "prefix": DISTRIBUTED_MODE_PREFIX,
         "junit": args.junit,
         "token": TOKEN,
-        "integration": integration,
+        "integration": args.integrations,
         "email_recipients": args.email_recipients
     }
     globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")

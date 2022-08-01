@@ -25,7 +25,8 @@ def parse_args(events):
         "azure_devops": False,
         "deviation": 0,
         "max_deviation": 0,
-        "test_id": ""
+        "test_id": "",
+        "integrations": ""
     }
     for event in events:
         if "container" in event:
@@ -52,6 +53,7 @@ def parse_args(events):
         args["deviation"] = event.get('deviation', 0)
         args["max_deviation"] = event.get('max_deviation', 0)
         args["test_id"] = event.get('test_id', '')
+        args["integrations"] = event.get('integrations', {})
         env_vars = event.get("cc_env_vars", None)
         if env_vars:
             for key, value in env_vars.items():
@@ -77,7 +79,8 @@ def parse_args(events):
         report_portal=args["report_portal"],
         email=args["email"],
         azure_devops=args["azure_devops"],
-        email_recipients=args["email_recipients"]
+        email_recipients=args["email_recipients"],
+        integrations=args["integrations"]
         )
 
     from control_tower.run import str2bool, process_git_repo, split_csv_file
