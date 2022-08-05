@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import argparse
+import logging
 
 import os
 import tempfile
@@ -27,6 +28,7 @@ import re
 from datetime import datetime
 import requests
 import sys
+from centry_loki import log_loki
 
 RABBIT_USER = environ.get('RABBIT_USER', 'user')
 RABBIT_PASSWORD = environ.get('RABBIT_PASSWORD', 'password')
@@ -120,13 +122,14 @@ ENV_VARS_MAPPING = {
     "csv_path": "CSV_PATH"
 }
 
-loki_context = {"url": f"{LOKI_HOST.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
-                "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
-                                                        "project": PROJECT_ID,
-                                                        "report_id": REPORT_ID}}
-from centry_loki import log_loki
-
-logger = log_loki.get_logger(loki_context)
+if REPORT_ID:
+    loki_context = {"url": f"{GALLOPER_URL.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
+                    "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
+                                                            "project": PROJECT_ID,
+                                                            "report_id": REPORT_ID}}
+    logger = log_loki.get_logger(loki_context)
+else:
+    logger = logging.getLogger()
 
 
 def str2bool(v):
@@ -179,6 +182,7 @@ def arg_parse():
     parser.add_argument('-d', '--deviation', default=0, type=float)
     parser.add_argument('-md', '--max_deviation', default=0, type=float)
     parser.add_argument('-tid', '--test_id', default="", type=str)
+    parser.add_argument('-int', '--integrations', default={}, type=str)
     args, _ = parser.parse_known_args()
     if args.test_id and GALLOPER_URL:
         args = append_test_config(args)
@@ -234,9 +238,7 @@ def append_test_config(args):
             exit(1)
 
         data = {
-            "parallel": args.concurrency[i] if args.concurrency else None,
-            "params": dumps(params),
-            "emails": args.email_recipients if args.email_recipients else "",
+            "params": params,
             "type": "config"
         }
         # merge params with test config
@@ -261,6 +263,8 @@ def append_test_config(args):
         for each in ["junit", "quality_gate", "save_reports", "jira", "report_portal", "email", "azure_devops"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, str2bool(test_config[each]))
+        if "integrations" in test_config.keys():
+            setattr(args, "integrations", test_config["integrations"])
         env_vars = test_config["cc_env_vars"]
         for key, value in env_vars.items():
             if not environ.get(key, None):
@@ -350,17 +354,6 @@ def start_job(args=None):
     # for each in ["jira", "report_portal", "email", "azure_devops"]:
     #     if getattr(args, each):
     #         integration.append(each)
-    post_processor_args = {
-        "galloper_url": GALLOPER_URL,
-        "project_id": PROJECT_ID,
-        "galloper_web_hook": GALLOPER_WEB_HOOK,
-        "bucket": results_bucket,
-        "prefix": DISTRIBUTED_MODE_PREFIX,
-        "junit": args.junit,
-        "token": TOKEN,
-        "integration": args.integrations,
-        "email_recipients": args.email_recipients
-    }
     globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
                           password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
@@ -387,8 +380,6 @@ def start_job(args=None):
                 exec_params['additional_files'] = dumps(exec_params['additional_files']).replace("'", "\"")
             if JVM_ARGS:
                 exec_params['JVM_ARGS'] = JVM_ARGS
-            if REPORT_ID:
-                exec_params['report_id'] = REPORT_ID
             exec_params['build_id'] = BUILD_ID
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
@@ -402,6 +393,10 @@ def start_job(args=None):
                 exec_params['project_id'] = PROJECT_ID
             if TOKEN:
                 exec_params['token'] = TOKEN
+            if not REPORT_ID:
+                test_details = backend_perf_test_start_notify(args)
+                globals()["REPORT_ID"] = str(test_details["id"]) if "id" in test_details.keys() else None
+            exec_params['report_id'] = REPORT_ID
 
         elif args.job_type[i] == "observer":
             execution_params = args.execution_params[i]
@@ -464,6 +459,16 @@ def start_job(args=None):
                                   task_kwargs=ec2_settings))
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
+        post_processor_args = {
+            "galloper_url": GALLOPER_URL,
+            "project_id": PROJECT_ID,
+            "galloper_web_hook": GALLOPER_WEB_HOOK,
+            "report_id": REPORT_ID,
+            "bucket": results_bucket,
+            "prefix": DISTRIBUTED_MODE_PREFIX,
+            "token": TOKEN,
+            "integration": args.integrations
+        }
         try:
             group_id = arb.squad(tasks, callback=arbiter.Task("post_process", queue=args.channel[0],
                                                               task_kwargs=post_processor_args))
@@ -475,8 +480,6 @@ def start_job(args=None):
             update_test_status(status="Preparing...", percentage=5,
                                description="We have enough workers to run the test. The test will start soon")
             test_details = {"id": REPORT_ID}
-        else:
-            test_details = backend_perf_test_start_notify(args)
 
     elif args.job_type[0] == "observer":
         if REPORT_ID:
@@ -586,8 +589,7 @@ def backend_perf_test_start_notify(args):
             test_id = ""
         data = {'test_id': test_id, 'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
                 'duration': duration, 'vusers': users_count, 'environment': environment, 'start_time': start_time,
-                'missed': 0, 'test_status': {'status': 'Preparing...', 'percentage': 5,
-                                             'description': 'The test will start soon'}}
+                'missed': 0, "test_params": args.execution_params[0]['cmd']}
 
         headers = {'content-type': 'application/json'}
         if TOKEN:
@@ -595,16 +597,21 @@ def backend_perf_test_start_notify(args):
         url = f'{GALLOPER_URL}/api/v1/backend_performance/reports/{PROJECT_ID}'
 
         response = requests.post(url, json=data, headers=headers)
-
+        res = {}
         try:
-            logger.info(response.json()["message"])
+            res = response.json()
+            _loki_context = {"url": f"{GALLOPER_URL.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
+                             "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
+                                                                     "project": PROJECT_ID,
+                                                                     "report_id": str(res.get("id"))}}
+            globals()["logger"] = log_loki.get_logger(_loki_context)
         except:
-            logger.info(response.text)
+            logger.error(response.text)
 
         if response.status_code == requests.codes.forbidden:
-            logger.info(response.json().get('Forbidden'))
+            logger.error(response.json().get('Forbidden'))
             exit(126)
-        return response.json()
+        return res
     return {}
 
 
@@ -716,7 +723,7 @@ def _start_and_track(args=None):
     bitter, group_id, test_details = start_job(args)
     logger.info("Job started, waiting for containers to settle ... ")
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
-    if args.junit:
+    if args.integrations and "quality_gate" in args.integrations["reporters"].keys():
         logger.info("Processing junit report ...")
         process_junit_report(args)
     if args.job_type[0] in ["dast", "sast"] and args.quality_gate:
@@ -777,11 +784,13 @@ def process_junit_report(args):
         logger.info("* Performance testing jUnit report | Carrier *")
         logger.info("**********************************************")
         logger.info(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
-        if args.quality_gate:
-            rate = round(float(failed / total) * 100, 2) if total != 0 else 0
-            if rate > 20:
-                logger.info("Missed threshold rate is {}".format(rate), file=sys.stderr)
-                exit(1)
+        rate = round(float(failed / total) * 100, 2) if total != 0 else 0
+        if rate > int(args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"]):
+            logger.error("Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
+            exit(1)
+        else:
+            logger.error("Quality gate status: PASSED. Missed threshold rate lower than {}%".format(
+                int(args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"])))
 
 
 def download_junit_report(results_bucket, file_name, retry):
