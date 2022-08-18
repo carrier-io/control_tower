@@ -32,7 +32,10 @@ def parse_args(events):
         if "container" in event:
             args["container"].append(event["container"])
         if "execution_params" in event:
-            args["execution_params"].append(loads(event["execution_params"]))
+            if isinstance(event["execution_params"], dict):
+                args["execution_params"].append(event["execution_params"])
+            else:
+                args["execution_params"].append(loads(event["execution_params"]))
         if "job_type" in event:
             args["job_type"].append(event["job_type"])
         if "concurrency" in event:
