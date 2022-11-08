@@ -149,7 +149,7 @@ def request_spot_fleets(args, aws_config, galloper_url, rabbit_host, rabbit_user
             if retry == 0:
                 logger.info("Spot instances set up timeout - 600 seconds ...")
                 terminate_spot_instances(fleet_id, launch_template_id)
-                raise Exception
+                exit(1)
     ec2_settings = {
         "aws_access_key_id": aws_config.get("aws_access_key"),
         "aws_secret_access_key": aws_config["aws_secret_access_key"],
