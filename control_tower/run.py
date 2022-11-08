@@ -14,20 +14,19 @@
 
 import argparse
 import logging
-
 import os
+import re
 import tempfile
 import zipfile
-import arbiter
 from copy import deepcopy
+from datetime import datetime
 from json import loads, dumps
-from os import environ, path
+from os import environ
 from time import sleep, time
 from uuid import uuid4
-import re
-from datetime import datetime
+
+import arbiter
 import requests
-import sys
 from centry_loki import log_loki
 
 RABBIT_USER = environ.get('RABBIT_USER', 'user')
@@ -123,10 +122,11 @@ ENV_VARS_MAPPING = {
 }
 
 if REPORT_ID:
-    loki_context = {"url": f"{GALLOPER_URL.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
-                    "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
-                                                            "project": PROJECT_ID,
-                                                            "report_id": REPORT_ID}}
+    loki_context = {
+        "url": f"{GALLOPER_URL.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
+        "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
+                                                "project": PROJECT_ID,
+                                                "report_id": REPORT_ID}}
     logger = log_loki.get_logger(loki_context)
 else:
     logger = logging.getLogger()
@@ -221,7 +221,7 @@ def append_test_config(args):
                         params[_[0]] = str(_[1]).strip()
         elif lg_type == 'gatling':
             url = f"{GALLOPER_URL}/api/v1/backend_performance/test/{PROJECT_ID}/{args.test_id}"
-            if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[i].keys():
+            if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[i]:
                 exec_params = args.execution_params[i]['GATLING_TEST_PARAMS'].split("-D")
                 for each in exec_params:
                     if "=" in each:
@@ -260,7 +260,8 @@ def append_test_config(args):
         for each in ["container", "job_type", "channel"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, [test_config[each]])
-        for each in ["junit", "quality_gate", "save_reports", "jira", "report_portal", "email", "azure_devops"]:
+        for each in ["junit", "quality_gate", "save_reports", "jira",
+                     "report_portal", "email", "azure_devops"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, str2bool(test_config[each]))
         if "integrations" in test_config.keys():
@@ -293,7 +294,8 @@ def process_git_repo(test_config, args):
 
 def split_csv_file(args):
     from control_tower.csv_splitter import process_csv
-    globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, args.bucket, CSV_FILES,
+    globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact,
+                                         args.bucket, CSV_FILES,
                                          args.concurrency[0])
     concurrency, execution_params, job_type, container, channel = [], [], [], [], []
     for i in range(args.concurrency[0]):
@@ -311,15 +313,18 @@ def split_csv_file(args):
 
 def parse_id():
     parser = argparse.ArgumentParser(description='Carrier Command Center')
-    parser.add_argument('-g', '--groupid', type=str, default="", help="ID of the group for a task")
-    parser.add_argument('-c', '--container', type=str, help="Name of container to run the job "
-                                                            "e.g. getcarrier/dusty:latest")
-    parser.add_argument('-t', '--job_type', type=str, help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
-    parser.add_argument('-n', '--job_name', type=str, help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
+    parser.add_argument('-g', '--groupid', type=str, default="",
+                        help="ID of the group for a task")
+    parser.add_argument('-c', '--container', type=str,
+                        help="Name of container to run the job e.g. getcarrier/dusty:latest")
+    parser.add_argument('-t', '--job_type', type=str,
+                        help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
+    parser.add_argument('-n', '--job_name', type=str,
+                        help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
     args, _ = parser.parse_known_args()
     if args.groupid:
         for unparsed in _:
-            args.groupid = args.groupid + unparsed
+            args.groupid += unparsed
     if 'group_id' in args.groupid:
         args.groupid = loads(args.groupid)
     return args
@@ -336,15 +341,23 @@ def start_job(args=None):
                 logger.info(
                     f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
                 exit(0)
+    globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
 
     # AWS integration
     ec2_settings = {}
-    if args.channel[0] == "aws":
+    try:
+        aws_settings = args.integrations["clouds"]["aws_integration"]
+    except KeyError:
+        aws_settings = None
+
+    if aws_settings:
         from control_tower.aws import request_spot_fleets
-        update_test_status(status="Preparing...", percentage=5, description="Request AWS spot instances")
+        update_test_status(status="Preparing...", percentage=5,
+                           description="Request AWS spot instances")
         try:
-            ec2_settings = request_spot_fleets(args, GALLOPER_URL, PROJECT_ID, TOKEN, RABBIT_HOST, RABBIT_USER,
-                                               RABBIT_PASSWORD, RABBIT_PORT, RABBIT_VHOST)
+            ec2_settings = request_spot_fleets(args, aws_settings, GALLOPER_URL, RABBIT_HOST,
+                                               RABBIT_USER, RABBIT_PASSWORD, RABBIT_PORT,
+                                               RABBIT_VHOST)
         except Exception as e:
             logger.info(e)
             update_test_status(status="Error", percentage=100, description=str(e))
@@ -354,7 +367,6 @@ def start_job(args=None):
     # for each in ["jira", "report_portal", "email", "azure_devops"]:
     #     if getattr(args, each):
     #         integration.append(each)
-    globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
                           password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
     tasks = []
@@ -372,12 +384,14 @@ def start_job(args=None):
             if globals().get("csv_array"):
                 for _file in globals().get("csv_array")[i]:
                     if 'additional_files' in exec_params:
-                        exec_params['additional_files'] = {**exec_params['additional_files'], **_file}
+                        exec_params['additional_files'] = {**exec_params['additional_files'],
+                                                           **_file}
                     else:
                         exec_params['additional_files'] = _file
 
             if 'additional_files' in exec_params:
-                exec_params['additional_files'] = dumps(exec_params['additional_files']).replace("'", "\"")
+                exec_params['additional_files'] = dumps(
+                    exec_params['additional_files']).replace("'", "\"")
             if JVM_ARGS:
                 exec_params['JVM_ARGS'] = JVM_ARGS
             exec_params['build_id'] = BUILD_ID
@@ -395,7 +409,8 @@ def start_job(args=None):
                 exec_params['token'] = TOKEN
             if not REPORT_ID:
                 test_details = backend_perf_test_start_notify(args)
-                globals()["REPORT_ID"] = str(test_details["id"]) if "id" in test_details.keys() else None
+                globals()["REPORT_ID"] = str(test_details["id"]) \
+                    if "id" in test_details.keys() else None
             exec_params['report_id'] = REPORT_ID
 
         elif args.job_type[i] == "observer":
@@ -417,8 +432,8 @@ def start_job(args=None):
             if TOKEN:
                 exec_params['token'] = TOKEN
             if mounts:
-                exec_params['mounts'] = mounts if not execution_params["mounts"] else execution_params[
-                    "mounts"]
+                exec_params['mounts'] = mounts if not execution_params["mounts"] \
+                    else execution_params["mounts"]
 
         elif args.job_type[i] == "sast":
             if "code_path" in exec_params:
@@ -455,8 +470,8 @@ def start_job(args=None):
 
     if ec2_settings:
         finalizer_queue_name = ec2_settings.pop("finalizer_queue_name")
-        tasks.append(arbiter.Task("terminate_ec2_instances", queue=finalizer_queue_name, task_type="finalize",
-                                  task_kwargs=ec2_settings))
+        tasks.append(arbiter.Task("terminate_ec2_instances", queue=finalizer_queue_name,
+                                  task_type="finalize", task_kwargs=ec2_settings))
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
         post_processor_args = {
@@ -470,8 +485,13 @@ def start_job(args=None):
             "integration": args.integrations
         }
         try:
-            group_id = arb.squad(tasks, callback=arbiter.Task("post_process", queue=args.channel[0],
-                                                              task_kwargs=post_processor_args))
+            group_id = arb.squad(
+                tasks, callback=arbiter.Task(
+                    "post_process",
+                    queue=args.channel[0],
+                    task_kwargs=post_processor_args
+                )
+            )
         except NameError as e:
             update_test_status(status="Error", percentage=100, description=str(e))
             logger.info(e)
@@ -498,7 +518,8 @@ def start_job(args=None):
 
 def update_test_status(status, percentage, description):
     module = CENTRY_MODULES_MAPPING.get(report_type)
-    data = {"test_status": {"status": status, "percentage": percentage, "description": description}}
+    data = {"test_status": {"status": status, "percentage": percentage,
+                            "description": description}}
     headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
     response = requests.put(url, json=data, headers=headers)
@@ -533,7 +554,8 @@ def frontend_perf_test_start_notify(args):
         if TOKEN:
             headers['Authorization'] = f'bearer {TOKEN}'
 
-        response = requests.post(f"{GALLOPER_URL}/api/v1/observer/{PROJECT_ID}", json=data, headers=headers)
+        response = requests.post(f"{GALLOPER_URL}/api/v1/observer/{PROJECT_ID}", json=data,
+                                 headers=headers)
         try:
             logger.info(response.json()["message"])
         except:
@@ -568,16 +590,20 @@ def backend_perf_test_start_notify(args):
         elif lg_type == 'gatling':
             for i in range(tests_count):
                 exec_params = args.execution_params[i]
-                test_type = exec_params['test_type'] if exec_params.get('test_type') else 'demo'
-                test_name = exec_params['test'].split(".")[1].lower() if exec_params.get('test') else 'test'
+                test_type = exec_params['test_type'] if exec_params.get(
+                    'test_type') else 'demo'
+                test_name = exec_params['test'].split(".")[1].lower() if exec_params.get(
+                    'test') else 'test'
                 environment = exec_params['env'] if exec_params.get('env') else 'demo'
                 if exec_params.get('GATLING_TEST_PARAMS'):
                     if '-dduration' in exec_params['GATLING_TEST_PARAMS'].lower():
-                        duration = re.findall("-dduration=(.+?) ", exec_params['GATLING_TEST_PARAMS'].lower())[0]
+                        duration = re.findall("-dduration=(.+?) ",
+                                              exec_params['GATLING_TEST_PARAMS'].lower())[0]
                     for each in vusers_var_names:
                         if f'-d{each}' in exec_params['GATLING_TEST_PARAMS'].lower():
                             pattern = f'-d{each}=(.+?) '
-                            vusers = re.findall(pattern, exec_params['GATLING_TEST_PARAMS'].lower())
+                            vusers = re.findall(pattern,
+                                                exec_params['GATLING_TEST_PARAMS'].lower())
                             users_count += int(vusers[0]) * args.concurrency[i]
                             break
         else:
@@ -587,8 +613,10 @@ def backend_perf_test_start_notify(args):
             test_id = args.test_id
         else:
             test_id = ""
-        data = {'test_id': test_id, 'build_id': BUILD_ID, 'test_name': test_name, 'lg_type': lg_type, 'type': test_type,
-                'duration': duration, 'vusers': users_count, 'environment': environment, 'start_time': start_time,
+        data = {'test_id': test_id, 'build_id': BUILD_ID, 'test_name': test_name,
+                'lg_type': lg_type, 'type': test_type,
+                'duration': duration, 'vusers': users_count, 'environment': environment,
+                'start_time': start_time,
                 'missed': 0, "test_params": args.execution_params[0]['cmd']}
 
         headers = {'content-type': 'application/json'}
@@ -600,10 +628,11 @@ def backend_perf_test_start_notify(args):
         res = {}
         try:
             res = response.json()
-            _loki_context = {"url": f"{GALLOPER_URL.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
-                             "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
-                                                                     "project": PROJECT_ID,
-                                                                     "report_id": str(res.get("id"))}}
+            _loki_context = {
+                "url": f"{GALLOPER_URL.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
+                "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
+                                                        "project": PROJECT_ID,
+                                                        "report_id": str(res.get("id"))}}
             globals()["logger"] = log_loki.get_logger(_loki_context)
         except:
             logger.error(response.text)
@@ -723,7 +752,7 @@ def _start_and_track(args=None):
     bitter, group_id, test_details = start_job(args)
     logger.info("Job started, waiting for containers to settle ... ")
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
-    if args.integrations and "quality_gate" in args.integrations["reporters"].keys():
+    if args.integrations and "quality_gate" in args.integrations.get("reporters", {}):
         logger.info("Processing junit report ...")
         process_junit_report(args)
     if args.job_type[0] in ["dast", "sast"] and args.quality_gate:
@@ -783,14 +812,17 @@ def process_junit_report(args):
         logger.info("**********************************************")
         logger.info("* Performance testing jUnit report | Carrier *")
         logger.info("**********************************************")
-        logger.info(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
+        logger.info(
+            f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
         rate = round(float(failed / total) * 100, 2) if total != 0 else 0
         if rate > int(args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"]):
             logger.error("Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
             exit(1)
         else:
-            logger.error("Quality gate status: PASSED. Missed threshold rate lower than {}%".format(
-                int(args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"])))
+            logger.error(
+                "Quality gate status: PASSED. Missed threshold rate lower than {}%".format(
+                    int(args.integrations["reporters"]["quality_gate"][
+                            "failed_thresholds_rate"])))
 
 
 def download_junit_report(results_bucket, file_name, retry):
