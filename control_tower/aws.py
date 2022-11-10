@@ -1,58 +1,49 @@
-import boto3
 import base64
-from json import loads, JSONDecodeError
-import requests
 from time import sleep
 from uuid import uuid4
-from arbiter import Arbiter
-from control_tower.run import logger
 
+import boto3
+from arbiter import Arbiter
+
+from control_tower.run import logger
 
 ec2 = None
 
 
-def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabbit_user, rabbit_password, rabbit_port,
-                        vhost):
+def request_spot_fleets(args, aws_config, galloper_url, rabbit_host, rabbit_user,
+        rabbit_password, rabbit_port, vhost
+):
     logger.info("Requesting Spot Fleets...")
-    secrets_url = f"{galloper_url}/api/v1/secrets/secret/{project_id}/aws"
-    headers = {
-        'Authorization': f'bearer {token}',
-        'Content-type': 'application/json'
-    }
-    aws_config = {}
-    try:
-        aws_config = loads(requests.get(secrets_url, headers=headers).json()["secret"])
-    except (AttributeError, JSONDecodeError):
-        logger.error("Failed to load AWS config for the project")
-        exit(1)
     queue_name = str(uuid4())
     finalizer_queue_name = str(uuid4())
-    total_workers = 0
-    cpu = float(args.execution_params[0]["cpu_cores_limit"]) if "cpu_cores_limit" in args.execution_params[0] else 1.0
-    memory = int(args.execution_params[0]["memory_limit"]) if "memory_limit" in args.execution_params[0] else 1
+    instance_count = 0
+
+    cpu = max(2, int(aws_config["cpu_cores_limit"]))
+    memory = int(aws_config["memory_limit"]) + 1
+
     for i in range(len(args.concurrency)):
         args.channel[i] = queue_name
-        args.execution_params[i]["JVM_ARGS"] = f"-Xms{memory}g -Xmx{memory}g"
-        total_workers += args.concurrency[i]
-    cpu += 0.5
-    memory += 1
+        instance_count += args.concurrency[i]
+
     if cpu > 8:
         logger.error("Max CPU cores limit should be less then 8")
-        exit(1)
-    if memory > 30:
-        logger.error("Max memory limit should be less then 30g")
-        exit(1)
-    total_cpu_cores = round(cpu * total_workers + 0.1)
-    workers_per_lg = 2 if total_cpu_cores > 2 and memory < 8 else 1
-    lg_count = round(total_workers / workers_per_lg + 0.1)
-    logger.info(f"CPU per worker - {cpu}. Memory per worker - {memory}g")
-    logger.info(f"Instances count - {lg_count}")
+        raise Exception
+    if memory > 16:
+        logger.error("Max memory limit should be less then 16g")
+        raise Exception
+
+    logger.info(f"CPU per instance - {cpu}. Memory per instance - {memory}g")
+    logger.info(f"Instances count - {instance_count}")
+
     global ec2
     ec2 = boto3.client('ec2', aws_access_key_id=aws_config.get("aws_access_key"),
-                       aws_secret_access_key=aws_config["aws_secret_access_key"], region_name=aws_config["region_name"])
+                       aws_secret_access_key=aws_config["aws_secret_access_key"],
+                       region_name=aws_config["region_name"])
+
     user_data = '''#!/bin/bash
-    apt update
-    apt install docker
+    
+    apt update -y
+    apt install docker -y
     apt install docker.io -y
     '''
     user_data += f"docker pull {args.container[0]}\n"
@@ -60,43 +51,86 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
                  f" -e CPU_CORES=1 -e RABBIT_HOST={rabbit_host} -e RABBIT_USER={rabbit_user}" \
                  f" -e RABBIT_PASSWORD={rabbit_password} -e VHOST={vhost} -e QUEUE_NAME={finalizer_queue_name}" \
                  f" -e LOKI_HOST={galloper_url.replace('https://', 'http://')} " \
-                 f"getcarrier/interceptor:2.5\n"
-    user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA={memory}g -e CPU_QUOTA={cpu}" \
-                 f" -e CPU_CORES={workers_per_lg} -e RABBIT_HOST={rabbit_host} -e RABBIT_USER={rabbit_user}" \
+                 f"getcarrier/interceptor:latest\n"
+    user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA={memory}g -e CPU_QUOTA={cpu * 0.9}" \
+                 f" -e CPU_CORES=1 -e RABBIT_HOST={rabbit_host} -e RABBIT_USER={rabbit_user}" \
                  f" -e RABBIT_PASSWORD={rabbit_password} -e VHOST={vhost} -e QUEUE_NAME={queue_name}" \
                  f" -e LOKI_HOST={galloper_url.replace('https://', 'http://')} " \
-                 f"getcarrier/interceptor:2.5"
+                 f"getcarrier/interceptor:latest"
     user_data = base64.b64encode(user_data.encode("ascii")).decode("ascii")
-    config = {
-        "Type": "request",
-        'AllocationStrategy': "lowestPrice",
-        "IamFleetRole": aws_config["iam_fleet_role"],
-        "TargetCapacity": lg_count,
-        "SpotPrice": "2.5",
-        "TerminateInstancesWithExpiration": True,
-        'LaunchSpecifications': []
+    launch_template_config = {
+        "LaunchTemplateName": f"{queue_name}",
+        "LaunchTemplateData": {
+            "ImageId": aws_config["image_id"] or get_default_image_id(),
+            "UserData": user_data,
+            "InstanceRequirements": {
+                'VCpuCount': {
+                    'Min': cpu,
+                },
+                'MemoryMiB': {
+                    'Min': memory * 1024,
+                },
+            },
+        }
     }
 
-    instance_types = get_instance_types(cpu, memory, workers_per_lg)
-    for each in instance_types:
-        specs = {
-            "ImageId": aws_config["image_id"],
-            "InstanceType": each,
-            "BlockDeviceMappings": [],
-            "SpotPrice": "2.5",
-            "NetworkInterfaces": [],
-            "SecurityGroups": [],
-            "UserData": user_data
-            }
-        if aws_config["security_groups"]:
-            for sg in aws_config["security_groups"].split(","):
-                specs["SecurityGroups"].append({"GroupId": sg})
-        config["LaunchSpecifications"].append(specs)
-    response = ec2.request_spot_fleet(SpotFleetRequestConfig=config)
+    if aws_config["security_groups"]:
+        launch_template_config["LaunchTemplateData"]["SecurityGroups"] = aws_config[
+            "security_groups"].split(",")
+    if aws_config["key_name"]:
+        launch_template_config["LaunchTemplateData"]["KeyName"] = aws_config["key_name"]
+
+
+    res = ec2.create_launch_template(**launch_template_config)
+    logger.info(res)
+
+    launch_template_id = res["LaunchTemplate"]["LaunchTemplateId"]
+
+    if res.get("Warning"):
+        terminate_spot_instances(template_id=launch_template_id)
+        raise Exception(res["Warning"]["Errors"][0]["Message"])
+
+    is_spot_request = aws_config["instance_type"] == "spot"
+
+    fleet_config = {
+        "Type": "instant",
+        "SpotOptions": {
+            'AllocationStrategy': 'lowest-price'
+        },
+        "LaunchTemplateConfigs": [{
+            'LaunchTemplateSpecification': {
+                'LaunchTemplateId': launch_template_id,
+                'Version': '$Default'
+            },
+            "Overrides": [{
+                "MaxPrice": "2.5",
+            }]
+        }],
+        "TargetCapacitySpecification": {
+            'TotalTargetCapacity': instance_count,
+            'OnDemandTargetCapacity': instance_count if not is_spot_request else 0,
+            'SpotTargetCapacity': instance_count if is_spot_request else 0,
+            'DefaultTargetCapacityType': aws_config["instance_type"]
+        },
+    }
+    if aws_config["subnet_id"]:
+        fleet_config["LaunchTemplateConfigs"][0]["Overrides"][0].update({
+            "SubnetId": aws_config["subnet_id"]
+        })
+
+    logger.info(f"final fleet_config {fleet_config}")
+    response = ec2.create_fleet(**fleet_config)
     logger.info("*********************************************")
     logger.info(response)
-    fleet_id = response["SpotFleetRequestId"]
-    arbiter = Arbiter(host=rabbit_host, port=rabbit_port, user=rabbit_user, password=rabbit_password, vhost=vhost)
+
+    fleet_id = response["FleetId"]
+
+    if response.get("Errors"):
+        terminate_spot_instances(fleet_id, launch_template_id)
+        raise Exception(res["Errors"][0]["ErrorMessage"])
+
+    arbiter = Arbiter(host=rabbit_host, port=rabbit_port, user=rabbit_user,
+                      password=rabbit_password, vhost=vhost)
     retry = 10
     while retry != 0:
         try:
@@ -104,7 +138,8 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
         except:
             workers = {}
         logger.info(workers)
-        if args.channel[0] in workers and workers[args.channel[0]]["available"] >= total_workers:
+        if args.channel[0] in workers \
+                and workers[args.channel[0]]["available"] >= instance_count:
             logger.info("Spot Fleet instances are ready")
             break
         else:
@@ -113,64 +148,64 @@ def request_spot_fleets(args, galloper_url, project_id, token, rabbit_host, rabb
             retry -= 1
             if retry == 0:
                 logger.info("Spot instances set up timeout - 600 seconds ...")
-                terminate_spot_instances(fleet_id)
-                exit(1)
+                terminate_spot_instances(fleet_id, launch_template_id)
+                raise Exception
     ec2_settings = {
         "aws_access_key_id": aws_config.get("aws_access_key"),
         "aws_secret_access_key": aws_config["aws_secret_access_key"],
         "region_name": aws_config["region_name"],
         "fleet_id": fleet_id,
+        "launch_template_id": launch_template_id,
         "finalizer_queue_name": finalizer_queue_name
     }
+    logger.info(f"ec2_settings: {ec2_settings}")
     return ec2_settings
 
 
-def terminate_spot_instances(fleet_id):
+def terminate_spot_instances(fleet_id: str = "", template_id: str = ""):
     logger.info("Terminating Spot instances...")
     global ec2
-    response = ec2.cancel_spot_fleet_requests(
-        SpotFleetRequestIds=[
-            fleet_id,
+    if fleet_id:
+        response = ec2.delete_fleets(
+            FleetIds=[
+                fleet_id,
+            ],
+            TerminateInstances=True
+        )
+        logger.info(response)
+    if template_id:
+        response = ec2.delete_launch_template(
+            LaunchTemplateId=template_id
+        )
+        logger.info(response)
+
+
+def get_default_image_id() -> str:
+    """
+    Finds Ubuntu 22.04 LTS image in aws catalog
+
+    :return: ami id of image
+    """
+    global ec2
+    res = ec2.describe_images(
+        Owners=['amazon'],
+        Filters=[
+            {
+                'Name': 'description',
+                'Values': ['*Canonical, Ubuntu, 22.04 LTS*']
+            },
+            {
+                'Name': 'architecture',
+                'Values': ['x86_64']
+            },
+            {
+                'Name': 'image-type',
+                'Values': ['machine']
+            },
+            {
+                'Name': 'owner-alias',
+                'Values': ['amazon']
+            }
         ],
-        TerminateInstances=True
     )
-    logger.info(response)
-
-
-def get_instance_types(cpu, memory, workers_per_lg):
-    instances = {
-        "2 cpu": {
-            "4g": ["c5.large", "t2.medium", "t3a.medium", "t3.medium"],
-            "8g": ["m5n.large", "m5zn.large", "m5.large", "t2.large", "t3.large"],
-            "16g": ["r4.large", "r5n.large", "r5ad.large", "r5.large", "r5d.large"]
-        },
-        "4 cpu": {
-            "8g": ["c5a.xlarge", "c5.xlarge", "c5d.xlarge", "c5ad.xlarge"],
-            "16g": ["m5ad.xlarge", "m5d.xlarge", "m5zn.xlarge", "m5.xlarge", "m5a.xlarge"]
-        },
-        "8 cpu": {
-            "16g": ["c5.2xlarge", "c5ad.2xlarge", "c5a.2xlarge", "c5n.2xlarge"],
-            "32g": ["m4.2xlarge", "m5dn.2xlarge", "m5ad.2xlarge", "m5d.2xlarge"]
-        }
-    }
-
-    if cpu * workers_per_lg < 2:
-        cpu_key = "2 cpu"
-    elif cpu * workers_per_lg < 4:
-        cpu_key = "4 cpu"
-    else:
-        cpu_key = "8 cpu"
-
-    if memory * workers_per_lg < 4 and cpu_key == "2 cpu":
-        memory_key = "4g"
-    elif memory * workers_per_lg < 8:
-        memory_key = "8g"
-    elif memory * workers_per_lg < 16:
-        memory_key = "16g"
-    else:
-        memory_key = "32g"
-        cpu_key = "8 cpu"
-
-    logger.info(f"Instance types for {cpu_key} and {memory_key}:")
-    logger.info(instances[cpu_key][memory_key])
-    return instances[cpu_key][memory_key]
+    return res['Images'][0]['ImageId']
