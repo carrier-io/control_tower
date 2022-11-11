@@ -424,6 +424,7 @@ def start_job(args=None):
             exec_params["JOB_NAME"] = args.job_name
             exec_params['ARTIFACT'] = args.artifact
             exec_params['TESTS_BUCKET'] = args.bucket
+            exec_params['integrations'] = dumps(args.integrations)
             if REPORT_ID:
                 exec_params['REPORT_ID'] = REPORT_ID
             else:
