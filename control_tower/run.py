@@ -124,9 +124,13 @@ ENV_VARS_MAPPING = {
 if REPORT_ID:
     loki_context = {
         "url": f"{GALLOPER_URL.replace('https://', 'http://')}:{LOKI_PORT}/loki/api/v1/push",
-        "hostname": "control-tower", "labels": {"build_id": BUILD_ID,
-                                                "project": PROJECT_ID,
-                                                "report_id": REPORT_ID}}
+        "hostname": "control-tower",
+        "labels": {
+            "build_id": BUILD_ID,
+            "project": PROJECT_ID,
+            "report_id": REPORT_ID
+        }
+    }
     logger = log_loki.get_logger(loki_context)
 else:
     logger = logging.getLogger()
@@ -235,7 +239,7 @@ def append_test_config(args):
         #     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
         else:
             logger.info(f"No data found for test_id={args.test_id}")
-            exit(1)
+            raise Exception
 
         data = {
             "params": params,
@@ -350,6 +354,11 @@ def start_job(args=None):
     except KeyError:
         aws_settings = None
 
+    try:
+        kubernetes_settings = args.integrations["clouds"]["kubernetes"]
+    except KeyError:
+        kubernetes_settings = None
+
     if aws_settings:
         from control_tower.aws import request_spot_fleets
         update_test_status(status="Preparing...", percentage=5,
@@ -364,9 +373,7 @@ def start_job(args=None):
             exit(1)
 
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
-    # for each in ["jira", "report_portal", "email", "azure_devops"]:
-    #     if getattr(args, each):
-    #         integration.append(each)
+
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
                           password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
     tasks = []
@@ -463,11 +470,32 @@ def start_job(args=None):
                             "file": (f"{args.test_id}.zip", src_file)
                         }
                     )
-        for _ in range(int(args.concurrency[i])):
-            task_kwargs = {'job_type': str(args.job_type[i]), 'container': args.container[i],
-                           'execution_params': exec_params, 'job_name': args.job_name}
-            queue_name = args.channel[i] if len(args.channel) > i else "default"
-            tasks.append(arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
+
+        if kubernetes_settings:
+            task_kwargs = {
+                'job_type': str(args.job_type[i]),
+                'container': args.container[i],
+                'execution_params': exec_params,
+                'job_name': args.job_name,
+                'kubernetes_settings': {
+                    "jobs_count": int(args.concurrency[i]),
+                    "host": kubernetes_settings["hostname"],
+                    "token": kubernetes_settings["k8s_token"],
+                    "namespace": kubernetes_settings["namespace"],
+                    "secure_connection": kubernetes_settings["secure_connection"]
+                }
+            }
+            queue_name = args.channel[i] if len(args.channel) > i else "__internal"
+            tasks.append(
+                arbiter.Task("execute_kuber", queue=queue_name, task_kwargs=task_kwargs))
+        else:
+            for _ in range(int(args.concurrency[i])):
+                task_kwargs = {'job_type': str(args.job_type[i]),
+                               'container': args.container[i],
+                               'execution_params': exec_params, 'job_name': args.job_name}
+                queue_name = args.channel[i] if len(args.channel) > i else "default"
+                tasks.append(
+                    arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
 
     if ec2_settings:
         finalizer_queue_name = ec2_settings.pop("finalizer_queue_name")
@@ -481,9 +509,10 @@ def start_job(args=None):
             "galloper_web_hook": GALLOPER_WEB_HOOK,
             "report_id": REPORT_ID,
             "bucket": results_bucket,
+            "build_id": BUILD_ID,
             "prefix": DISTRIBUTED_MODE_PREFIX,
             "token": TOKEN,
-            "integration": args.integrations
+            "integration": args.integrations,
         }
         try:
             group_id = arb.squad(
@@ -493,7 +522,7 @@ def start_job(args=None):
                     task_kwargs=post_processor_args
                 )
             )
-        except NameError as e:
+        except (NameError, KeyError) as e:
             update_test_status(status="Error", percentage=100, description=str(e))
             logger.info(e)
             exit(1)
