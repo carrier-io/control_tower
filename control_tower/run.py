@@ -239,7 +239,7 @@ def append_test_config(args):
         #     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
         else:
             logger.info(f"No data found for test_id={args.test_id}")
-            raise Exception
+            exit(1)
 
         data = {
             "params": params,
