@@ -402,6 +402,7 @@ def start_job(args=None):
             if JVM_ARGS:
                 exec_params['JVM_ARGS'] = JVM_ARGS
             exec_params['build_id'] = BUILD_ID
+            exec_params["test_name"] = args.job_name
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
             exec_params['bucket'] = BUCKET if not args.bucket else args.bucket
