@@ -281,6 +281,8 @@ def append_test_config(args):
     setattr(args, "job_type", job_type)
     if "git" in test_config.keys():
         process_git_repo(test_config, args)
+    if "local_path" in test_config.keys():
+        process_local_mount(test_config, args)
     if CSV_FILES:
         split_csv_file(args)
     return args
@@ -291,6 +293,15 @@ def process_git_repo(test_config, args):
     git_setting = test_config["git"]
     clone_repo(git_setting)
     post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip")
+    setattr(args, "artifact", f"{BUILD_ID}.zip")
+    setattr(args, "bucket", "tests")
+    globals()["compile_and_run"] = "true"
+
+
+def process_local_mount(test_config, args):
+    from control_tower.git_clone import post_artifact
+    local_path = test_config["local_path"]
+    post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip", local_path)
     setattr(args, "artifact", f"{BUILD_ID}.zip")
     setattr(args, "bucket", "tests")
     globals()["compile_and_run"] = "true"
