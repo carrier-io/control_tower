@@ -86,7 +86,7 @@ def clone_repo(git_settings):
         repository.reset_index(repository[b"HEAD"].tree)
     except KeyError:
         logger.error(f"The {branch} branch does not exist")
-        exit(1)
+        raise Exception(f"The {branch} branch does not exist")
 
 
 def zipdir(ziph):
