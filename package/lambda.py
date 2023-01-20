@@ -84,7 +84,7 @@ def parse_args(events):
         azure_devops=args["azure_devops"],
         email_recipients=args["email_recipients"],
         integrations=args["integrations"]
-        )
+    )
 
     from control_tower.run import str2bool, process_git_repo, split_csv_file
     if "git" in events[0]:
@@ -105,7 +105,9 @@ def handler(event=None, context=None):
             'statusCode': 200,
             'body': "test is done"
         }
-    except:
+    except Exception as exc:
+        from control_tower.run import update_test_status
+        update_test_status(status="Failed", percentage=100, description=str(exc))
         return {
             'statusCode': 500,
             'body': format_exc()
