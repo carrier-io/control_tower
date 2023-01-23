@@ -89,17 +89,20 @@ def clone_repo(git_settings):
         exit(1)
 
 
-def zipdir(ziph):
+def zipdir(ziph, zip_path="/tmp/git_dir"):
     # ziph is zipfile handle
-    for root, dirs, files in os.walk("/tmp/git_dir"):
+    for root, dirs, files in os.walk(zip_path):
         for f in files:
-            ziph.write(os.path.join(root, f), os.path.join(root.replace("/tmp/git_dir", ''), f))
+            ziph.write(os.path.join(root, f), os.path.join(root.replace(zip_path, ''), f))
 
 
-def post_artifact(galloper_url, token, project_id, artifact):
+def post_artifact(galloper_url, token, project_id, artifact, local_path=None):
     try:
         ziph = zipfile.ZipFile(f"/tmp/{artifact}", 'w', zipfile.ZIP_DEFLATED)
-        zipdir(ziph)
+        if local_path:
+            zipdir(ziph, zip_path=local_path)
+        else:
+            zipdir(ziph)
         ziph.close()
         files = {'file': open(f"/tmp/{artifact}", 'rb')}
         headers = {'Authorization': f'bearer {token}'} if token else {}
