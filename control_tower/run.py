@@ -20,106 +20,14 @@ import tempfile
 import zipfile
 from copy import deepcopy
 from datetime import datetime
-from json import loads, dumps
-from os import environ
+from json import dumps
 from time import sleep, time
-from uuid import uuid4
 
 import arbiter
 import requests
 from centry_loki import log_loki
 
-RABBIT_USER = environ.get('RABBIT_USER', 'user')
-RABBIT_PASSWORD = environ.get('RABBIT_PASSWORD', 'password')
-RABBIT_HOST = environ.get('RABBIT_HOST', 'localhost')
-RABBIT_VHOST = environ.get('RABBIT_VHOST', 'carrier')
-RABBIT_PORT = environ.get('RABBIT_PORT', '5672')
-GALLOPER_WEB_HOOK = environ.get('GALLOPER_WEB_HOOK', None)
-LOKI_HOST = environ.get('loki_host', None)
-LOKI_PORT = environ.get('loki_port', '3100')
-GALLOPER_URL = environ.get('galloper_url', None)
-PROJECT_ID = environ.get('project_id', None)
-REPORT_ID = environ.get('REPORT_ID', None)
-BUCKET = environ.get('bucket', None)
-TEST = environ.get('artifact', None)
-ADDITIONAL_FILES = environ.get('additional_files', None)
-BUILD_ID = environ.get('build_id', f'build_{uuid4()}')
-DISTRIBUTED_MODE_PREFIX = environ.get('PREFIX', f'test_results_{uuid4()}_')
-JVM_ARGS = environ.get('JVM_ARGS', None)
-TOKEN = environ.get('token', None)
-mounts = environ.get('mounts', None)
-release_id = environ.get('release_id', None)
-app = None
-SAMPLER = environ.get('sampler', "REQUEST")
-REQUEST = environ.get('request', "All")
-CALCULATION_DELAY = environ.get('data_wait', 300)
-CHECK_SATURATION = environ.get('check_saturation', None)
-MAX_ERRORS = environ.get('error_rate', 100)
-DEVIATION = environ.get('dev', 0.02)
-MAX_DEVIATION = environ.get('max_dev', 0.05)
-U_AGGR = environ.get('u_aggr', 1)
-KILL_MAX_WAIT_TIME = 10
-CSV_FILES = loads(environ.get('csv_files', '{}'))
-report_type = ""
-
-JOB_TYPE_MAPPING = {
-    "perfmeter": "jmeter",
-    "perfgun": "gatling",
-    "free_style": "other",
-    "observer": "observer",
-    "dast": "dast",
-    "sast": "sast",
-}
-
-REPORT_TYPE_MAPPING = {
-    "gatling": "backend",
-    "jmeter": "backend",
-    "observer": "frontend",
-    "dast": "security",
-    "sast": "security"
-}
-
-CENTRY_MODULES_MAPPING = {
-    "gatling": "backend_performance",
-    "jmeter": "backend_performance",
-    "observer": "ui_performance",
-    "dast": "security",
-    "sast": "security"
-}
-
-PROJECT_PACKAGE_MAPPER = {
-    "basic": {"duration": 1800, "load_generators": 1},
-    "startup": {"duration": 7200, "load_generators": 5},
-    "professional": {"duration": 28800, "load_generators": 10},
-    "enterprise": {"duration": -1, "load_generators": -1},
-    "custom": {"duration": -1, "load_generators": -1},  # need to set custom values?
-}
-
-ENV_VARS_MAPPING = {
-    "RABBIT_USER": "RABBIT_USER",
-    "RABBIT_PASSWORD": "RABBIT_PASSWORD",
-    "RABBIT_HOST": "RABBIT_HOST",
-    "RABBIT_VHOST": "RABBIT_VHOST",
-    "RABBIT_PORT": "RABBIT_PORT",
-    "GALLOPER_WEB_HOOK": "GALLOPER_WEB_HOOK",
-    "LOKI_PORT": "LOKI_PORT",
-    "mounts": "mounts",
-    "release_id": "release_id",
-    "sampler": "SAMPLER",
-    "request": "REQUEST",
-    "data_wait": "CALCULATION_DELAY",
-    "check_saturation": "CHECK_SATURATION",
-    "error_rate": "MAX_ERRORS",
-    "dev": "DEVIATION",
-    "max_dev": "MAX_DEVIATION",
-    "galloper_url": "GALLOPER_URL",
-    "token": "TOKEN",
-    "project_id": "PROJECT_ID",
-    "bucket": "BUCKET",
-    "u_aggr": "U_AGGR",
-    "split_csv": "SPLIT_CSV",
-    "csv_path": "CSV_PATH"
-}
+from control_tower.constants import *
 
 if REPORT_ID:
     loki_context = {
@@ -202,9 +110,9 @@ def append_test_config(args):
     test_config = requests.get(url, headers=headers)
     try:
         test_config = test_config.json()
-    except:
+    except Exception as exc:
         logger.info(test_config.text)
-        exit(1)
+        raise exc
     job_type = args.job_type[0] if args.job_type else test_config["job_type"]
     lg_type = JOB_TYPE_MAPPING.get(job_type, "other")
     params = {}
@@ -231,15 +139,11 @@ def append_test_config(args):
                     if "=" in each:
                         _ = each.split("=")
                         params[_[0]] = str(_[1]).strip()
-        # elif lg_type == 'observer':
-        #     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/frontend/{args.test_id}"
         elif lg_type == 'dast':
             url = f"{GALLOPER_URL}/api/v1/security/test/{PROJECT_ID}/{args.test_id}"
-        # elif lg_type == 'sast':
-        #     url = f"{GALLOPER_URL}/api/v1/tests/{PROJECT_ID}/sast/{args.test_id}"
         else:
             logger.info(f"No data found for test_id={args.test_id}")
-            exit(1)
+            raise RuntimeError(f"No data found for test_id={args.test_id}")
 
         data = {
             "params": params,
@@ -249,9 +153,9 @@ def append_test_config(args):
         test_config = requests.post(url, json=data, headers=headers)
         try:
             test_config = test_config.json()
-        except:
+        except Exception as exc:
             logger.info(test_config.text)
-            exit(1)
+            raise exc
         # set args and env vars
         execution_params.append(loads(test_config["execution_params"]))
         concurrency.append(test_config["concurrency"])
@@ -353,35 +257,30 @@ def start_job(args=None):
         allowable_load_generators = PROJECT_PACKAGE_MAPPER.get(package)["load_generators"]
         for each in args.concurrency:
             if allowable_load_generators != -1 and allowable_load_generators < each:
-                logger.info(
+                raise Exception(
                     f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
-                exit(0)
     globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
+    finalizer_task = None
 
-    # AWS integration
-    ec2_settings = {}
+    # Cloud integrations
+    aws_settings = args.integrations.get("clouds", {}).get("aws_integration", None)
+    gcp_settings = args.integrations.get("clouds", {}).get("gcp_integration", None)
+    kubernetes_settings = args.integrations.get("clouds", {}).get("kubernetes", None)
+
     try:
-        aws_settings = args.integrations["clouds"]["aws_integration"]
-    except KeyError:
-        aws_settings = None
-
-    try:
-        kubernetes_settings = args.integrations["clouds"]["kubernetes"]
-    except KeyError:
-        kubernetes_settings = None
-
-    if aws_settings:
-        from control_tower.aws import request_spot_fleets
-        update_test_status(status="Preparing...", percentage=5,
-                           description="Request AWS spot instances")
-        try:
-            ec2_settings = request_spot_fleets(args, aws_settings, GALLOPER_URL, RABBIT_HOST,
-                                               RABBIT_USER, RABBIT_PASSWORD, RABBIT_PORT,
-                                               RABBIT_VHOST)
-        except Exception as e:
-            logger.info(e)
-            update_test_status(status="Error", percentage=100, description=str(e))
-            exit(1)
+        if aws_settings:
+            from control_tower.cloud import create_aws_instances
+            update_test_status(status="Preparing...", percentage=5,
+                               description="Request AWS spot instances")
+            finalizer_task = create_aws_instances(args, aws_settings)
+        elif gcp_settings:
+            from control_tower.cloud import create_gcp_instances
+            update_test_status(status="Preparing...", percentage=5,
+                               description="Request GCP Compute instances")
+            finalizer_task = create_gcp_instances(args, gcp_settings)
+    except Exception as e:
+        logger.error(e)
+        raise e
 
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
 
@@ -494,7 +393,8 @@ def start_job(args=None):
                     "host": kubernetes_settings["hostname"],
                     "token": kubernetes_settings["k8s_token"],
                     "namespace": kubernetes_settings["namespace"],
-                    "secure_connection": kubernetes_settings["secure_connection"]
+                    "secure_connection": kubernetes_settings["secure_connection"],
+                    "scaling_cluster": kubernetes_settings["scaling_cluster"]
                 }
             }
             queue_name = args.channel[i] if len(args.channel) > i else "__internal"
@@ -509,10 +409,8 @@ def start_job(args=None):
                 tasks.append(
                     arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
 
-    if ec2_settings:
-        finalizer_queue_name = ec2_settings.pop("finalizer_queue_name")
-        tasks.append(arbiter.Task("terminate_ec2_instances", queue=finalizer_queue_name,
-                                  task_type="finalize", task_kwargs=ec2_settings))
+    if finalizer_task:
+        tasks.append(finalizer_task)
 
     if args.job_type[0] in ['perfgun', 'perfmeter']:
         post_processor_args = {
@@ -535,9 +433,8 @@ def start_job(args=None):
                 )
             )
         except (NameError, KeyError) as e:
-            update_test_status(status="Error", percentage=100, description=str(e))
-            logger.info(e)
-            exit(1)
+            logger.error(e)
+            raise e
         if REPORT_ID:
             update_test_status(status="Preparing...", percentage=5,
                                description="We have enough workers to run the test. The test will start soon")
@@ -681,7 +578,7 @@ def backend_perf_test_start_notify(args):
 
         if response.status_code == requests.codes.forbidden:
             logger.error(response.json().get('Forbidden'))
-            exit(126)
+            raise Exception(response.json().get('Forbidden'))
         return res
     return {}
 
@@ -822,7 +719,8 @@ def process_security_quality_gate(args):
         args.job_type[0], f"{args.test_id}_junit_report.xml", retry=12
     )
     if junit_report_data:
-        with open(os.path.join(args.report_path, f"junit_report_{args.test_id}.xml"), "w") as rept:
+        with open(os.path.join(args.report_path, f"junit_report_{args.test_id}.xml"),
+                  "w") as rept:
             rept.write(junit_report_data.text)
     # Quality Gate
     quality_gate_data = download_junit_report(
@@ -836,7 +734,7 @@ def process_security_quality_gate(args):
         for line in quality_gate["quality_gate_stats"]:
             logger.info(line)
     if quality_gate["fail_quality_gate"]:
-        exit(1)
+        raise Exception
 
 
 def process_junit_report(args):
@@ -857,9 +755,12 @@ def process_junit_report(args):
         logger.info(
             f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
         rate = round(float(failed / total) * 100, 2) if total != 0 else 0
-        if rate > int(args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"]):
-            logger.error("Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
-            exit(1)
+        if rate > int(
+                args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"]):
+            logger.error(
+                "Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
+            raise Exception(
+                "Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
         else:
             logger.error(
                 "Quality gate status: PASSED. Missed threshold rate lower than {}%".format(
