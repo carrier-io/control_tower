@@ -361,6 +361,10 @@ def start_job(args=None):
                     else execution_params["mounts"]
 
         elif args.job_type[i] == "sast":
+            exec_params['build_id'] = BUILD_ID
+            exec_params['report_id'] = REPORT_ID
+            exec_params['project_id'] = PROJECT_ID
+
             if "code_path" in exec_params:
                 logger.info("Uploading code artifact to Galloper ...")
                 with tempfile.TemporaryFile() as src_file:
