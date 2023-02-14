@@ -1,6 +1,7 @@
 import base64
 from uuid import uuid4
 
+import arbiter
 import boto3
 
 from control_tower.cloud.common import wait_for_instances_start, get_instance_init_script, \
