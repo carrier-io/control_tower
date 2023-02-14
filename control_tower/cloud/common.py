@@ -29,7 +29,7 @@ def get_instances_requirements(args, cloud_config, queue_name):
 def wait_for_instances_start(args, instance_count: int, terminate_instance_func: Callable):
     arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
                       password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
-    retry = 5
+    retry = 10
     while retry != 0:
         try:
             workers = arbiter.workers()
@@ -45,7 +45,7 @@ def wait_for_instances_start(args, instance_count: int, terminate_instance_func:
             sleep(60)
             retry -= 1
             if retry == 0:
-                logger.info("Instances set up timeout - 600 seconds ...")
+                logger.info(f"Instances set up timeout - {60 * retry} seconds ...")
                 terminate_instance_func()
                 raise Exception("Couldn't set up cloud instances")
 
