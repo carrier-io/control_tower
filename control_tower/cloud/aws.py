@@ -54,7 +54,12 @@ def create_aws_instances(args, aws_config):
 
     if res.get("Warning"):
         terminate_spot_instances(template_id=launch_template_id)
-        raise Exception(res["Warning"]["Errors"][0]["Message"])
+        logger.error(res)
+        try:
+            error_msg = res["Warning"]["Errors"][0]["Message"]
+        except (KeyError, IndexError):
+            error_msg = "Error while creating launch template"
+        raise Exception(error_msg)
 
     is_spot_request = aws_config["instance_type"] == "spot"
 
@@ -93,7 +98,11 @@ def create_aws_instances(args, aws_config):
 
     if response.get("Errors"):
         terminate_spot_instances(fleet_id, launch_template_id)
-        raise Exception(res["Errors"][0]["ErrorMessage"])
+        try:
+            error_msg = res["Errors"][0]["ErrorMessage"]
+        except (KeyError, IndexError):
+            error_msg = "Error while creating spot fleet"
+        raise Exception(error_msg)
 
     wait_for_instances_start(
         args, instance_count,

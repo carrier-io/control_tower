@@ -107,6 +107,7 @@ def handler(event=None, context=None):
         }
     except Exception as exc:
         from control_tower.run import update_test_status
+        sleep(30)
         update_test_status(status="Failed", percentage=100, description=str(exc))
         return {
             'statusCode': 500,
