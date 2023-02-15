@@ -29,7 +29,7 @@ def get_instances_requirements(args, cloud_config, queue_name):
 def wait_for_instances_start(args, instance_count: int, terminate_instance_func: Callable):
     try:
         arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
+                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120)
     except:
         terminate_instance_func()
         raise Exception("Couldn't connect to RabbitMQ")

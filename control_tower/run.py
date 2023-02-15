@@ -285,7 +285,7 @@ def start_job(args=None):
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
 
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
+                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120)
     tasks = []
     for i in range(len(args.concurrency)):
         exec_params = deepcopy(args.execution_params[i])
