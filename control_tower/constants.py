@@ -47,14 +47,14 @@ REPORT_TYPE_MAPPING = {
     "jmeter": "backend",
     "observer": "frontend",
     "dast": "security",
-    "sast": "security"
+    "sast": "security_sast"
 }
 CENTRY_MODULES_MAPPING = {
     "gatling": "backend_performance",
     "jmeter": "backend_performance",
     "observer": "ui_performance",
     "dast": "security",
-    "sast": "security"
+    "sast": "security_sast"
 }
 PROJECT_PACKAGE_MAPPER = {
     "basic": {"duration": 1800, "load_generators": 1},

@@ -379,11 +379,13 @@ def start_job(args=None):
                     headers = {
                         "Authorization": f"Bearer {TOKEN}"
                     }
-                    url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/sast/{args.test_id}.zip"
+                    # upload artifact
+                    url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
                     requests.post(
                         url, headers=headers, files={
-                            "file": (f"{args.test_id}.zip", src_file)
-                        }
+                            "file": (f"{BUILD_ID}.zip", src_file)
+                        },
+                        params={'create_if_not_exists': True}
                     )
 
         if kubernetes_settings:
