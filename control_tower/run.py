@@ -381,7 +381,6 @@ def start_job(args=None):
                             "file": (f"{args.test_id}.zip", src_file)
                         }
                     )
-
         if kubernetes_settings:
             task_kwargs = {
                 'job_type': str(args.job_type[i]),
@@ -401,44 +400,50 @@ def start_job(args=None):
             tasks.append(
                 arbiter.Task("execute_kuber", queue=queue_name, task_kwargs=task_kwargs))
         else:
+            queue_name = args.channel[i] if len(args.channel) > i else "default"
             for _ in range(int(args.concurrency[i])):
                 task_kwargs = {'job_type': str(args.job_type[i]),
                                'container': args.container[i],
                                'execution_params': exec_params, 'job_name': args.job_name}
-                queue_name = args.channel[i] if len(args.channel) > i else "default"
+
                 tasks.append(
                     arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
+            if args.job_type[0] in ['perfgun', 'perfmeter']:
+                post_processor_args = {
+                    "galloper_url": GALLOPER_URL,
+                    "project_id": PROJECT_ID,
+                    "galloper_web_hook": GALLOPER_WEB_HOOK,
+                    "report_id": REPORT_ID,
+                    "bucket": results_bucket,
+                    "build_id": BUILD_ID,
+                    "prefix": DISTRIBUTED_MODE_PREFIX,
+                    "token": TOKEN,
+                    "integration": args.integrations,
+                    "exec_params": dumps(exec_params),
+                }
+                tasks.append(
+                    arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
+
 
     if finalizer_task:
         tasks.append(finalizer_task)
 
-    if args.job_type[0] in ['perfgun', 'perfmeter']:
-        post_processor_args = {
-            "galloper_url": GALLOPER_URL,
-            "project_id": PROJECT_ID,
-            "galloper_web_hook": GALLOPER_WEB_HOOK,
-            "report_id": REPORT_ID,
-            "bucket": results_bucket,
-            "build_id": BUILD_ID,
-            "prefix": DISTRIBUTED_MODE_PREFIX,
-            "token": TOKEN,
-            "integration": args.integrations,
-        }
-        try:
-            group_id = arb.squad(
-                tasks, callback=arbiter.Task(
-                    "post_process",
-                    queue=args.channel[0],
-                    task_kwargs=post_processor_args
-                )
-            )
-        except (NameError, KeyError) as e:
-            logger.error(e)
-            raise e
-        if REPORT_ID:
-            update_test_status(status="Preparing...", percentage=5,
-                               description="We have enough workers to run the test. The test will start soon")
-            test_details = {"id": REPORT_ID}
+    try:
+        group_id = arb.squad(tasks)
+        # group_id = arb.squad(
+        #     tasks, callback=arbiter.Task(
+        #         "post_process",
+        #         queue=args.channel[0],
+        #         task_kwargs=post_processor_args
+        #     )
+        # )
+    except (NameError, KeyError) as e:
+        logger.error(e)
+        raise e
+    if REPORT_ID:
+        update_test_status(status="Preparing...", percentage=5,
+                           description="We have enough workers to run the test. The test will start soon")
+        test_details = {"id": REPORT_ID}
 
     elif args.job_type[0] == "observer":
         if REPORT_ID:
