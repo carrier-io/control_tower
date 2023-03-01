@@ -287,6 +287,7 @@ def start_job(args=None):
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
                           password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120)
     tasks = []
+    exec_params = {}
     for i in range(len(args.concurrency)):
         exec_params = deepcopy(args.execution_params[i])
         if mounts:
@@ -408,21 +409,22 @@ def start_job(args=None):
 
                 tasks.append(
                     arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
-            if args.job_type[0] in ['perfgun', 'perfmeter']:
-                post_processor_args = {
-                    "galloper_url": GALLOPER_URL,
-                    "project_id": PROJECT_ID,
-                    "galloper_web_hook": GALLOPER_WEB_HOOK,
-                    "report_id": REPORT_ID,
-                    "bucket": results_bucket,
-                    "build_id": BUILD_ID,
-                    "prefix": DISTRIBUTED_MODE_PREFIX,
-                    "token": TOKEN,
-                    "integration": args.integrations,
-                    "exec_params": dumps(exec_params),
-                }
-                tasks.append(
-                    arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
+    if args.job_type[0] in ['perfgun', 'perfmeter']:
+        post_processor_args = {
+            "galloper_url": GALLOPER_URL,
+            "project_id": PROJECT_ID,
+            "galloper_web_hook": GALLOPER_WEB_HOOK,
+            "report_id": REPORT_ID,
+            "bucket": results_bucket,
+            "build_id": BUILD_ID,
+            "prefix": DISTRIBUTED_MODE_PREFIX,
+            "token": TOKEN,
+            "integration": dumps(args.integrations),
+            "exec_params": dumps(exec_params),
+        }
+        queue_name = args.channel[0] if len(args.channel) > 0 else "default"
+        tasks.append(
+            arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
 
 
     if finalizer_task:
