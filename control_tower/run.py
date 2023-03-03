@@ -336,6 +336,7 @@ def start_job(args=None):
             execution_params = args.execution_params[i]
 
             exec_params["GALLOPER_URL"] = GALLOPER_URL
+            exec_params['project_id'] = PROJECT_ID
             exec_params["REPORTS_BUCKET"] = BUCKET
             exec_params["RESULTS_BUCKET"] = results_bucket
             exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
@@ -346,6 +347,7 @@ def start_job(args=None):
             exec_params['integrations'] = dumps(args.integrations)
             if REPORT_ID:
                 exec_params['REPORT_ID'] = REPORT_ID
+                exec_params['report_id'] = REPORT_ID
             else:
                 exec_params['REPORT_ID'] = BUILD_ID.replace("build_", "")
 
@@ -745,7 +747,7 @@ def process_security_quality_gate(args):
 
 
 def process_junit_report(args):
-    file_name = "junit_report_{}.xml".format(DISTRIBUTED_MODE_PREFIX)
+    file_name = "junit_report_{}.xml".format(BUILD_ID)
     results_bucket = str(args.job_name).replace("_", "").lower()
     junit_report = download_junit_report(results_bucket, file_name, retry=12)
     if junit_report:
