@@ -161,7 +161,9 @@ def append_test_config(args):
         concurrency.append(test_config["concurrency"])
         container.append(test_config["container"])
         job_type.append(test_config["job_type"])
-
+        print("test_config ******************")
+        print(test_config)
+        setattr(args, "job_name", test_config["job_name"])
         for each in ["artifact", "bucket", "job_name", "email_recipients"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, test_config[each])
@@ -189,6 +191,7 @@ def append_test_config(args):
         process_local_mount(test_config, args)
     if CSV_FILES:
         split_csv_file(args)
+    print(args)
     return args
 
 
@@ -760,15 +763,15 @@ def process_security_quality_gate(args):
 def process_junit_report(args):
     file_name = "junit_report_{}.xml".format(BUILD_ID)
     results_bucket = str(args.job_name).replace("_", "").lower()
-    junit_report = download_junit_report(results_bucket, file_name, retry=60)
+    junit_report = download_junit_report(results_bucket, file_name, retry=12)
     if junit_report:
         with open("{}/{}".format(args.report_path, file_name), "w") as f:
             f.write(junit_report.text)
-
-        failed = int(re.findall("testsuites .+? failures=\"(.+?)\"", junit_report.text)[0])
-        total = int(re.findall("testsuites .+? tests=\"(.+?)\"", junit_report.text)[0])
-        errors = int(re.findall("testsuites .+? errors=\"(.+?)\"", junit_report.text)[0])
-        skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", junit_report.text)[0])
+        result_string = junit_report.text.split("\n")[2]
+        failed = int(re.findall("testsuite .+? failures=\"(.+?)\"", result_string)[0])
+        total = int(re.findall("testsuite .+? tests=\"(.+?)\"", result_string)[0])
+        errors = int(re.findall("testsuite .+? errors=\"(.+?)\"", result_string)[0])
+        skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", result_string)[0])
         logger.info("**********************************************")
         logger.info("* Performance testing jUnit report | Carrier *")
         logger.info("**********************************************")
@@ -776,7 +779,7 @@ def process_junit_report(args):
             f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
         rate = round(float(failed / total) * 100, 2) if total != 0 else 0
         if rate > int(
-                args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"]):
+                args.integrations["processing"]["quality_gate"]["missed_thresholds"]):
             logger.error(
                 "Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
             raise Exception(
@@ -784,8 +787,8 @@ def process_junit_report(args):
         else:
             logger.error(
                 "Quality gate status: PASSED. Missed threshold rate lower than {}%".format(
-                    int(args.integrations["reporters"]["quality_gate"][
-                            "failed_thresholds_rate"])))
+                    int(args.integrations["processing"]["quality_gate"][
+                            "missed_thresholds"])))
 
 
 def download_junit_report(results_bucket, file_name, retry):
