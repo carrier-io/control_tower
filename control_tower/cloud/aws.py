@@ -23,7 +23,7 @@ def create_aws_instances(args, aws_config):
                        aws_secret_access_key=aws_config["aws_secret_access_key"],
                        region_name=aws_config["region_name"])
 
-    user_data = get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name)
+    user_data = get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name, instance_count)
     user_data = base64.b64encode(user_data.encode("ascii")).decode("ascii")
     launch_template_config = {
         "LaunchTemplateName": f"{queue_name}",

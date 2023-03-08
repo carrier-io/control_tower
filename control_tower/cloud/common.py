@@ -15,6 +15,12 @@ def get_instances_requirements(args, cloud_config, queue_name):
     for i in range(len(args.concurrency)):
         args.channel[i] = queue_name
         instance_count += args.concurrency[i]
+
+    if instance_count == 1 and args.job_type[0] in ['perfgun', 'perfmeter']:
+        cpu += 1
+        memory += 4
+    else:
+        instance_count += 1
     if cpu > 8:
         logger.error("Max CPU cores limit should be less then 8")
         raise Exception
@@ -54,7 +60,13 @@ def wait_for_instances_start(args, instance_count: int, terminate_instance_func:
                 raise Exception("Couldn't set up cloud instances")
 
 
-def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name):
+def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name, instance_count=None):
+    if instance_count and instance_count == 1:
+        cpu_cores = 2
+        memory -= 4
+        cpu -= 1
+    else:
+        cpu_cores = 1
     user_data = '''#!/bin/bash
     
     apt update -y
@@ -62,13 +74,14 @@ def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name
     apt install docker.io -y
     '''
     user_data += f"docker pull {args.container[0]}\n"
+    user_data += f"docker pull getcarrier/performance_results_processing:latest\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA=1g -e CPU_QUOTA=1" \
                  f" -e CPU_CORES=1 -e RABBIT_HOST={RABBIT_HOST} -e RABBIT_USER={RABBIT_USER}" \
                  f" -e RABBIT_PASSWORD={RABBIT_PASSWORD} -e VHOST={RABBIT_VHOST} -e QUEUE_NAME={finalizer_queue_name}" \
                  f" -e LOKI_HOST={GALLOPER_URL.replace('https://', 'http://')} " \
                  f"getcarrier/interceptor:latest\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA={memory}g -e CPU_QUOTA={cpu * 0.9}" \
-                 f" -e CPU_CORES=1 -e RABBIT_HOST={RABBIT_HOST} -e RABBIT_USER={RABBIT_USER}" \
+                 f" -e CPU_CORES={cpu_cores} -e RABBIT_HOST={RABBIT_HOST} -e RABBIT_USER={RABBIT_USER}" \
                  f" -e RABBIT_PASSWORD={RABBIT_PASSWORD} -e VHOST={RABBIT_VHOST} -e QUEUE_NAME={queue_name}" \
                  f" -e LOKI_HOST={GALLOPER_URL.replace('https://', 'http://')} " \
                  f"getcarrier/interceptor:latest"
