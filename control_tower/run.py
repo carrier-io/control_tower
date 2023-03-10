@@ -161,7 +161,9 @@ def append_test_config(args):
         concurrency.append(test_config["concurrency"])
         container.append(test_config["container"])
         job_type.append(test_config["job_type"])
-
+        print("test_config ******************")
+        print(test_config)
+        setattr(args, "job_name", test_config["job_name"])
         for each in ["artifact", "bucket", "job_name", "email_recipients"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, test_config[each])
@@ -189,6 +191,7 @@ def append_test_config(args):
         process_local_mount(test_config, args)
     if CSV_FILES:
         split_csv_file(args)
+    print(args)
     return args
 
 
@@ -285,8 +288,9 @@ def start_job(args=None):
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
 
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST)
+                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120)
     tasks = []
+    exec_params = {}
     for i in range(len(args.concurrency)):
         exec_params = deepcopy(args.execution_params[i])
         if mounts:
@@ -335,6 +339,7 @@ def start_job(args=None):
             execution_params = args.execution_params[i]
 
             exec_params["GALLOPER_URL"] = GALLOPER_URL
+            exec_params['project_id'] = PROJECT_ID
             exec_params["REPORTS_BUCKET"] = BUCKET
             exec_params["RESULTS_BUCKET"] = results_bucket
             exec_params["RESULTS_REPORT_NAME"] = DISTRIBUTED_MODE_PREFIX
@@ -345,6 +350,7 @@ def start_job(args=None):
             exec_params['integrations'] = dumps(args.integrations)
             if REPORT_ID:
                 exec_params['REPORT_ID'] = REPORT_ID
+                exec_params['report_id'] = REPORT_ID
             else:
                 exec_params['REPORT_ID'] = BUILD_ID.replace("build_", "")
 
@@ -387,7 +393,6 @@ def start_job(args=None):
                         },
                         params={'create_if_not_exists': True}
                     )
-
         if kubernetes_settings:
             task_kwargs = {
                 'job_type': str(args.job_type[i]),
@@ -407,17 +412,14 @@ def start_job(args=None):
             tasks.append(
                 arbiter.Task("execute_kuber", queue=queue_name, task_kwargs=task_kwargs))
         else:
+            queue_name = args.channel[i] if len(args.channel) > i else "default"
             for _ in range(int(args.concurrency[i])):
                 task_kwargs = {'job_type': str(args.job_type[i]),
                                'container': args.container[i],
                                'execution_params': exec_params, 'job_name': args.job_name}
-                queue_name = args.channel[i] if len(args.channel) > i else "default"
+
                 tasks.append(
                     arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
-
-    if finalizer_task:
-        tasks.append(finalizer_task)
-
     if args.job_type[0] in ['perfgun', 'perfmeter']:
         post_processor_args = {
             "galloper_url": GALLOPER_URL,
@@ -428,23 +430,33 @@ def start_job(args=None):
             "build_id": BUILD_ID,
             "prefix": DISTRIBUTED_MODE_PREFIX,
             "token": TOKEN,
-            "integration": args.integrations,
+            "integration": dumps(args.integrations),
+            "exec_params": dumps(exec_params),
         }
-        try:
-            group_id = arb.squad(
-                tasks, callback=arbiter.Task(
-                    "post_process",
-                    queue=args.channel[0],
-                    task_kwargs=post_processor_args
-                )
-            )
-        except (NameError, KeyError) as e:
-            logger.error(e)
-            raise e
-        if REPORT_ID:
-            update_test_status(status="Preparing...", percentage=5,
-                               description="We have enough workers to run the test. The test will start soon")
-            test_details = {"id": REPORT_ID}
+        queue_name = args.channel[0] if len(args.channel) > 0 else "default"
+        tasks.append(
+            arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
+
+
+    if finalizer_task:
+        tasks.append(finalizer_task)
+
+    try:
+        group_id = arb.squad(tasks)
+        # group_id = arb.squad(
+        #     tasks, callback=arbiter.Task(
+        #         "post_process",
+        #         queue=args.channel[0],
+        #         task_kwargs=post_processor_args
+        #     )
+        # )
+    except (NameError, KeyError) as e:
+        logger.error(e)
+        raise e
+    if REPORT_ID:
+        update_test_status(status="Preparing...", percentage=5,
+                           description="We have enough workers to run the test. The test will start soon")
+        test_details = {"id": REPORT_ID}
 
     elif args.job_type[0] == "observer":
         if REPORT_ID:
@@ -630,6 +642,17 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
     return {"message": "Test is in progress", "code": 0}
 
 
+def test_finished():
+    headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
+    headers["Content-type"] = "application/json"
+    url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{REPORT_ID}'
+    res = requests.get(url, headers=headers).json()
+    print(f"Status: {res['message']}")
+    if res["message"].lower() in ["finished", "failed", "success"]:
+        return True
+    return False
+
+
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
     result = 0
     test_start = time()
@@ -638,7 +661,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
         package = get_project_package()
         max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
 
-    while not bitter.status(group_id)['state'] == 'done':
+    while not test_finished():
         sleep(60)
         if CHECK_SATURATION:
             test_status = check_test_is_saturating(test_id, deviation, max_deviation)
@@ -697,7 +720,7 @@ def _start_and_track(args=None):
     bitter, group_id, test_details = start_job(args)
     logger.info("Job started, waiting for containers to settle ... ")
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
-    if args.integrations and "quality_gate" in args.integrations.get("reporters", {}):
+    if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
         logger.info("Processing junit report ...")
         process_junit_report(args)
     if args.job_type[0] in ["dast", "sast"] and args.quality_gate:
@@ -744,17 +767,17 @@ def process_security_quality_gate(args):
 
 
 def process_junit_report(args):
-    file_name = "junit_report_{}.xml".format(DISTRIBUTED_MODE_PREFIX)
+    file_name = "junit_report_{}.xml".format(BUILD_ID)
     results_bucket = str(args.job_name).replace("_", "").lower()
     junit_report = download_junit_report(results_bucket, file_name, retry=12)
     if junit_report:
         with open("{}/{}".format(args.report_path, file_name), "w") as f:
             f.write(junit_report.text)
-
-        failed = int(re.findall("testsuites .+? failures=\"(.+?)\"", junit_report.text)[0])
-        total = int(re.findall("testsuites .+? tests=\"(.+?)\"", junit_report.text)[0])
-        errors = int(re.findall("testsuites .+? errors=\"(.+?)\"", junit_report.text)[0])
-        skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", junit_report.text)[0])
+        result_string = junit_report.text.split("\n")[2]
+        failed = int(re.findall("testsuite .+? failures=\"(.+?)\"", result_string)[0])
+        total = int(re.findall("testsuite .+? tests=\"(.+?)\"", result_string)[0])
+        errors = int(re.findall("testsuite .+? errors=\"(.+?)\"", result_string)[0])
+        skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", result_string)[0])
         logger.info("**********************************************")
         logger.info("* Performance testing jUnit report | Carrier *")
         logger.info("**********************************************")
@@ -762,7 +785,7 @@ def process_junit_report(args):
             f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
         rate = round(float(failed / total) * 100, 2) if total != 0 else 0
         if rate > int(
-                args.integrations["reporters"]["quality_gate"]["failed_thresholds_rate"]):
+                args.integrations["processing"]["quality_gate"]["missed_thresholds"]):
             logger.error(
                 "Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
             raise Exception(
@@ -770,8 +793,8 @@ def process_junit_report(args):
         else:
             logger.error(
                 "Quality gate status: PASSED. Missed threshold rate lower than {}%".format(
-                    int(args.integrations["reporters"]["quality_gate"][
-                            "failed_thresholds_rate"])))
+                    int(args.integrations["processing"]["quality_gate"][
+                            "missed_thresholds"])))
 
 
 def download_junit_report(results_bucket, file_name, retry):

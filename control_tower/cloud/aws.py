@@ -1,6 +1,7 @@
 import base64
 from uuid import uuid4
 
+import arbiter
 import boto3
 
 from control_tower.cloud.common import wait_for_instances_start, get_instance_init_script, \
@@ -22,7 +23,7 @@ def create_aws_instances(args, aws_config):
                        aws_secret_access_key=aws_config["aws_secret_access_key"],
                        region_name=aws_config["region_name"])
 
-    user_data = get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name)
+    user_data = get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name, instance_count)
     user_data = base64.b64encode(user_data.encode("ascii")).decode("ascii")
     launch_template_config = {
         "LaunchTemplateName": f"{queue_name}",
@@ -53,7 +54,12 @@ def create_aws_instances(args, aws_config):
 
     if res.get("Warning"):
         terminate_spot_instances(template_id=launch_template_id)
-        raise Exception(res["Warning"]["Errors"][0]["Message"])
+        logger.error(res)
+        try:
+            error_msg = res["Warning"]["Errors"][0]["Message"]
+        except (KeyError, IndexError):
+            error_msg = "Error while creating launch template"
+        raise Exception(error_msg)
 
     is_spot_request = aws_config["instance_type"] == "spot"
 
@@ -92,7 +98,11 @@ def create_aws_instances(args, aws_config):
 
     if response.get("Errors"):
         terminate_spot_instances(fleet_id, launch_template_id)
-        raise Exception(res["Errors"][0]["ErrorMessage"])
+        try:
+            error_msg = res["Errors"][0]["ErrorMessage"]
+        except (KeyError, IndexError):
+            error_msg = "Error while creating spot fleet"
+        raise Exception(error_msg)
 
     wait_for_instances_start(
         args, instance_count,

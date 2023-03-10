@@ -118,7 +118,7 @@ def create_gcp_instances(args, gcp_settings):
 
     cpu, instance_count, memory = get_instances_requirements(args, gcp_settings, queue_name)
     machine_type = get_machine_type(cpu, memory)
-    user_data = get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name)
+    user_data = get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name, instance_count)
     service_account_info = json.loads(gcp_settings["service_account_info"])
     credentials = Credentials.from_service_account_info(service_account_info)
 
