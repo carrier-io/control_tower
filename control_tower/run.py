@@ -392,7 +392,7 @@ def start_job(args=None):
                             "file": (f"{BUILD_ID}.zip", src_file)
                         },
                         params={'create_if_not_exists': True}
-                    )
+                    )             
         if kubernetes_settings:
             task_kwargs = {
                 'job_type': str(args.job_type[i]),
@@ -437,7 +437,6 @@ def start_job(args=None):
         tasks.append(
             arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
 
-
     if finalizer_task:
         tasks.append(finalizer_task)
 
@@ -453,22 +452,15 @@ def start_job(args=None):
     except (NameError, KeyError) as e:
         logger.error(e)
         raise e
+        
+    test_details = {}
     if REPORT_ID:
         update_test_status(status="Preparing...", percentage=5,
-                           description="We have enough workers to run the test. The test will start soon")
+                        description="We have enough workers to run the test. The test will start soon")
         test_details = {"id": REPORT_ID}
-
-    elif args.job_type[0] == "observer":
-        if REPORT_ID:
-            update_test_status(status="Preparing...", percentage=5,
-                               description="We have enough workers to run the test. The test will start soon")
-            test_details = {"id": REPORT_ID}
-        else:
-            test_details = frontend_perf_test_start_notify(args)
-        group_id = arb.squad(tasks)
     else:
-        group_id = arb.squad(tasks)
-        test_details = {}
+        if args.job_type[0] == "observer":
+            test_details = frontend_perf_test_start_notify(args)
 
     return arb, group_id, test_details
 
@@ -643,9 +635,10 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
 
 
 def test_finished():
+    module = CENTRY_MODULES_MAPPING.get(report_type)
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
-    url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{REPORT_ID}'
+    url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
     res = requests.get(url, headers=headers).json()
     print(f"Status: {res['message']}")
     if res["message"].lower() in ["finished", "failed", "success"]:
