@@ -387,12 +387,9 @@ def start_job(args=None):
                     }
                     # upload artifact
                     url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
-                    requests.post(
-                        url, headers=headers, files={
-                            "file": (f"{BUILD_ID}.zip", src_file)
-                        },
-                        params={'create_if_not_exists': True}
-                    )             
+                    file_payload = {"file": (f"{BUILD_ID}.zip", src_file)} 
+                    requests.post(url, headers=headers, files=file_payload)
+                                
         if kubernetes_settings:
             task_kwargs = {
                 'job_type': str(args.job_type[i]),
