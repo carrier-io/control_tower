@@ -41,20 +41,23 @@ JOB_TYPE_MAPPING = {
     "observer": "observer",
     "dast": "dast",
     "sast": "sast",
+    "dependency": "dependency",
 }
 REPORT_TYPE_MAPPING = {
     "gatling": "backend",
     "jmeter": "backend",
     "observer": "frontend",
     "dast": "security",
-    "sast": "security_sast"
+    "sast": "security_sast",
+    "dependency": "security_dependency",
 }
 CENTRY_MODULES_MAPPING = {
     "gatling": "backend_performance",
     "jmeter": "backend_performance",
     "observer": "ui_performance",
     "dast": "security",
-    "sast": "security_sast"
+    "sast": "security_sast",
+    "dependency": "security_dependency",
 }
 PROJECT_PACKAGE_MAPPER = {
     "basic": {"duration": 1800, "load_generators": 1},
