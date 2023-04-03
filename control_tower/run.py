@@ -286,7 +286,6 @@ def start_job(args=None):
         raise e
 
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
-
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
                           password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120)
     tasks = []
@@ -360,7 +359,11 @@ def start_job(args=None):
                 exec_params['mounts'] = mounts if not execution_params["mounts"] \
                     else execution_params["mounts"]
 
-        elif args.job_type[i] == "sast":
+        elif args.job_type[i] in ("sast", "dependency"):
+            exec_params['build_id'] = BUILD_ID
+            exec_params['report_id'] = REPORT_ID
+            exec_params['project_id'] = PROJECT_ID
+
             if "code_path" in exec_params:
                 logger.info("Uploading code artifact to Galloper ...")
                 with tempfile.TemporaryFile() as src_file:
@@ -381,12 +384,11 @@ def start_job(args=None):
                     headers = {
                         "Authorization": f"Bearer {TOKEN}"
                     }
-                    url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/sast/{args.test_id}.zip"
-                    requests.post(
-                        url, headers=headers, files={
-                            "file": (f"{args.test_id}.zip", src_file)
-                        }
-                    )
+                    # upload artifact
+                    url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
+                    file_payload = {"file": (f"{BUILD_ID}.zip", src_file)} 
+                    requests.post(url, headers=headers, files=file_payload)
+                    
         if kubernetes_settings:
             task_kwargs = {
                 'job_type': str(args.job_type[i]),
@@ -431,7 +433,6 @@ def start_job(args=None):
         tasks.append(
             arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
 
-
     if finalizer_task:
         tasks.append(finalizer_task)
 
@@ -447,22 +448,15 @@ def start_job(args=None):
     except (NameError, KeyError) as e:
         logger.error(e)
         raise e
+
+    test_details = {}
     if REPORT_ID:
         update_test_status(status="Preparing...", percentage=5,
-                           description="We have enough workers to run the test. The test will start soon")
+                        description="We have enough workers to run the test. The test will start soon")
         test_details = {"id": REPORT_ID}
-
-    elif args.job_type[0] == "observer":
-        if REPORT_ID:
-            update_test_status(status="Preparing...", percentage=5,
-                               description="We have enough workers to run the test. The test will start soon")
-            test_details = {"id": REPORT_ID}
-        else:
-            test_details = frontend_perf_test_start_notify(args)
-        group_id = arb.squad(tasks)
     else:
-        group_id = arb.squad(tasks)
-        test_details = {}
+        if args.job_type[0] == "observer":
+            test_details = frontend_perf_test_start_notify(args)
 
     return arb, group_id, test_details
 
@@ -637,11 +631,11 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
 
 
 def test_finished():
+    module = CENTRY_MODULES_MAPPING.get(report_type)
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
-    url = f'{GALLOPER_URL}/api/v1/backend_performance/report_status/{PROJECT_ID}/{REPORT_ID}'
+    url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
     res = requests.get(url, headers=headers).json()
-    print(f"Status: {res['message']}")
     if res["message"].lower() in ["finished", "failed", "success"]:
         return True
     return False
@@ -659,8 +653,6 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
         sleep(60)
         if CHECK_SATURATION:
             test_status = check_test_is_saturating(test_id, deviation, max_deviation)
-            logger.info("Status:")
-            logger.info(test_status)
             if test_status.get("code", 0) == 1:
                 logger.info("Kill job")
                 try:
@@ -717,7 +709,7 @@ def _start_and_track(args=None):
     if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
         logger.info("Processing junit report ...")
         process_junit_report(args)
-    if args.job_type[0] in ["dast", "sast"] and args.quality_gate:
+    if args.job_type[0] in ["dast", "sast", "dependency"] and args.quality_gate:
         logger.info("Processing security quality gate ...")
         process_security_quality_gate(args)
     if args.artifact == f"{BUILD_ID}.zip":
