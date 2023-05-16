@@ -22,6 +22,7 @@ from copy import deepcopy
 from datetime import datetime
 from json import dumps
 from time import sleep, time
+import xml.etree.ElementTree as et
 
 import arbiter
 import requests
@@ -706,9 +707,6 @@ def _start_and_track(args=None):
     bitter, group_id, test_details = start_job(args)
     logger.info("Job started, waiting for containers to settle ... ")
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
-    if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
-        logger.info("Processing junit report ...")
-        process_junit_report(args)
     if args.job_type[0] in ["dast", "sast", "dependency"] and args.quality_gate:
         logger.info("Processing security quality gate ...")
         process_security_quality_gate(args)
@@ -721,6 +719,9 @@ def _start_and_track(args=None):
             for _ in each:
                 csv_name = list(_.keys())[0].replace("tests/", "")
                 delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
+    if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
+        logger.info("Processing junit report ...")
+        process_junit_report(args)
 
 
 def start_and_track(args=None):
@@ -759,28 +760,26 @@ def process_junit_report(args):
     if junit_report:
         with open("{}/{}".format(args.report_path, file_name), "w") as f:
             f.write(junit_report.text)
-        result_string = junit_report.text.split("\n")[2]
-        failed = int(re.findall("testsuite .+? failures=\"(.+?)\"", result_string)[0])
-        total = int(re.findall("testsuite .+? tests=\"(.+?)\"", result_string)[0])
-        errors = int(re.findall("testsuite .+? errors=\"(.+?)\"", result_string)[0])
-        skipped = int(re.findall("testsuite .+? skipped=\"(.+?)\"", result_string)[0])
-        logger.info("**********************************************")
-        logger.info("* Performance testing jUnit report | Carrier *")
-        logger.info("**********************************************")
-        logger.info(
-            f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
-        rate = round(float(failed / total) * 100, 2) if total != 0 else 0
-        if rate > int(
-                args.integrations["processing"]["quality_gate"]["missed_thresholds"]):
-            logger.error(
-                "Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
-            raise Exception(
-                "Quality gate status: FAILED. Missed threshold rate is {}%".format(rate))
-        else:
-            logger.error(
-                "Quality gate status: PASSED. Missed threshold rate lower than {}%".format(
-                    int(args.integrations["processing"]["quality_gate"][
-                            "missed_thresholds"])))
+        testsuite = et.fromstring(junit_report.text).find("./testsuite[@name='Quality gate ']")
+        if testsuite:
+            failed = testsuite.get('failures')
+            total = testsuite.get('tests')
+            errors = testsuite.get('errors')
+            skipped = testsuite.get('skipped')        
+            failures = [failure.get('message') for failure in testsuite.findall("./testcase/failure")]
+            logger.info("**********************************************")
+            logger.info("* Performance testing jUnit report | Carrier *")
+            logger.info("**********************************************")
+            logger.info(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
+            quality_gate_rate = int(args.integrations["processing"]["quality_gate"].get(
+                "settings", {}).get("per_request_results", {}).get("percentage_of_failed_requests", 20))
+            if failures:
+                for failure in failures:
+                    logger.error(failure)
+                raise Exception('Quality gate status: FAILED.')
+            else:
+                logger.info(
+                    f"Quality gate status: PASSED. Missed threshold rate lower than {quality_gate_rate}%")
 
 
 def download_junit_report(results_bucket, file_name, retry):
