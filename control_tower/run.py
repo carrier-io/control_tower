@@ -646,7 +646,7 @@ def test_finished():
 def send_minio_dump_flag(result_code: int):
     api_url = build_api_url('backend_performance', 'reports', skip_mode=True, trailing_slash=True)
     url = f'{GALLOPER_URL}{api_url}{PROJECT_ID}'
-    logger.info("Saving logs to minio %s", url)
+    logger.info("Saving logs to minio %s", api_url)
     headers = {'Content-type': 'application/json'}
     if TOKEN:
         headers['Authorization'] = f'bearer {TOKEN}'
