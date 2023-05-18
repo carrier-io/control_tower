@@ -21,15 +21,20 @@ jobs:
       ARTIFACT_NAME: "control-tower.zip"
       DEFAULT_TAG: "latest"
       LAMBDA_BUILDER: "lambci/lambda:build-python3.8"
+      BUILD_PATH: "./package/result"
     steps:
     - uses: actions/checkout@v3
     - name: setting up docker builder
       run: |
-        mkdir ./package/result/
-        cp ./package/lambda.py ./package/result/ 
+        mkdir $BUILD_PATH
+        cp ./package/lambda.py $BUILD_PATH
         docker run --rm -v $(pwd)/package:/var/task $LAMBDA_BUILDER pip install -r requirements.txt -t /var/task/result --no-cache-dir --compile
     - name: zipping
-      run: zip -r -9 $ARTIFACT_NAME ./package/result
+      run: |
+        HERE=$(pwd)
+        cd $BUILD_PATH
+        zip -r -9 $ARTIFACT_NAME .
+        mv $ARTIFACT_NAME $HERE
 #    - name: Create artifact
 #      uses: actions/upload-artifact@v3
 #      with:
