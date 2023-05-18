@@ -29,6 +29,7 @@ import requests
 from centry_loki import log_loki
 
 from control_tower.constants import *
+from control_tower.utils import build_api_url
 
 if REPORT_ID:
     loki_context = {
@@ -642,6 +643,15 @@ def test_finished():
     return False
 
 
+def send_minio_dump_flag(result_code: int):
+    api_url = build_api_url('backend_performance', 'reports', skip_mode=True, trailing_slash=True)
+    url = f'{GALLOPER_URL}{api_url}{PROJECT_ID}'
+    headers = {'Content-type': 'application/json'}
+    if TOKEN:
+        headers['Authorization'] = f'bearer {TOKEN}'
+    requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code})
+
+
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
     result = 0
     test_start = time()
@@ -678,6 +688,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
                 bitter.kill_group(group_id)
             except Exception as e:
                 logger.info(e)
+    send_minio_dump_flag(result)
     try:
         bitter.close()
     except Exception as e:
