@@ -27,7 +27,7 @@ jobs:
       run: docker run --rm -v $(pwd)/package:/var/task $LAMBDA_BUILDER pip install -r requirements.txt -t /var/task/result --no-cache-dir --compile
     - name: zipping
       run: |
-        mv ./package/lambda.py ./package/result
+        cp ./package/lambda.py ./package/result/
         zip -r -9 $ARTIFACT_NAME ./package/result
 #    - name: Create artifact
 #      uses: actions/upload-artifact@v3
