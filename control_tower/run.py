@@ -689,7 +689,6 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
                 bitter.kill_group(group_id)
             except Exception as e:
                 logger.info(e)
-    send_minio_dump_flag(result)
     try:
         bitter.close()
     except Exception as e:
