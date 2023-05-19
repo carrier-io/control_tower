@@ -95,13 +95,13 @@ def parse_args(events):
 
 
 def handler(event=None, context=None):
+    from control_tower.run import _start_and_track, send_minio_dump_flag
     try:
         if not os.path.exists('/tmp/reports'):
             os.mkdir('/tmp/reports')
         args = parse_args(event)
-        from control_tower.run import _start_and_track
         _start_and_track(args)
-        return {
+        result = {
             'statusCode': 200,
             'body': "test is done"
         }
@@ -109,7 +109,11 @@ def handler(event=None, context=None):
         from control_tower.run import update_test_status
         sleep(30)
         update_test_status(status="Failed", percentage=100, description=str(exc))
-        return {
+        result = {
             'statusCode': 500,
             'body': format_exc()
         }
+
+    send_minio_dump_flag(result['statusCode'])
+
+    return result
