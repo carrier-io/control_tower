@@ -1,11 +1,12 @@
 import os
 from traceback import format_exc
 from json import loads
+from typing import List, Union
+
 from control_tower.config_mock import BulkConfig
-from time import sleep
 
 
-def parse_args(events):
+def parse_args(events: List[dict]) -> dict:
     args = {
         "container": [],
         "execution_params": [],
@@ -94,12 +95,15 @@ def parse_args(events):
     return args
 
 
-def handler(event=None, context=None):
+def handler(event: Union[List[dict], dict], context=None):
     from control_tower.run import _start_and_track, send_minio_dump_flag
     try:
         if not os.path.exists('/tmp/reports'):
             os.mkdir('/tmp/reports')
-        args = parse_args(event)
+        if isinstance(event, dict):
+            args = parse_args([event])
+        else:
+            args = parse_args(event)
         _start_and_track(args)
         result = {
             'statusCode': 200,
@@ -107,7 +111,6 @@ def handler(event=None, context=None):
         }
     except Exception as exc:
         from control_tower.run import update_test_status
-        sleep(30)
         update_test_status(status="Failed", percentage=100, description=str(exc))
         result = {
             'statusCode': 500,
