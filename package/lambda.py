@@ -89,7 +89,8 @@ def parse_args(events: List[dict]) -> dict:
 
     from control_tower.run import str2bool, process_git_repo, split_csv_file
     if "git" in events[0]:
-        process_git_repo(events[0], args)
+        s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
+        process_git_repo(events[0], args, s3_settings)
     if loads(os.environ.get('csv_files', '{}')):
         split_csv_file(args)
     return args

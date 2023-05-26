@@ -4,17 +4,17 @@ import requests
 import shutil
 
 
-def process_csv(galloper_url, token, project_id, artifact, bucket, csv_files, lg_count):
-    download_artifact(galloper_url, project_id, token, bucket, artifact)
+def process_csv(galloper_url, token, project_id, artifact, bucket, csv_files, lg_count, s3_settings):
+    download_artifact(galloper_url, project_id, token, bucket, artifact, s3_settings)
     files = split_csv(csv_files, lg_count)
     csv_array = upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_count)
     return csv_array
 
 
-def download_artifact(galloper_url, project_id, token, bucket, artifact):
+def download_artifact(galloper_url, project_id, token, bucket, artifact, s3_settings):
     endpoint = f'/api/v1/artifacts/artifact/{project_id}/{bucket}/{artifact}'
     headers = {'Authorization': f'bearer {token}'}
-    r = requests.get(f'{galloper_url}{endpoint}', allow_redirects=True, headers=headers)
+    r = requests.get(f'{galloper_url}{endpoint}', params=s3_settings, allow_redirects=True, headers=headers)
     with open("/tmp/file_data.zip", 'wb') as file_data:
         file_data.write(r.content)
     try:

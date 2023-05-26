@@ -187,40 +187,41 @@ def append_test_config(args):
     setattr(args, "concurrency", concurrency)
     setattr(args, "container", container)
     setattr(args, "job_type", job_type)
+    s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
     if "git" in test_config.keys():
-        process_git_repo(test_config, args)
+        process_git_repo(test_config, args, s3_settings)
     if "local_path" in test_config.keys():
-        process_local_mount(test_config, args)
+        process_local_mount(test_config, args, s3_settings)
     if CSV_FILES:
-        split_csv_file(args)
+        split_csv_file(args, s3_settings)
     print(args)
     return args
 
 
-def process_git_repo(test_config, args):
+def process_git_repo(test_config, args, s3_settings):
     from control_tower.git_clone import clone_repo, post_artifact
     git_setting = test_config["git"]
     clone_repo(git_setting)
-    post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip")
+    post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip", s3_settings)
     setattr(args, "artifact", f"{BUILD_ID}.zip")
     setattr(args, "bucket", "tests")
     globals()["compile_and_run"] = "true"
 
 
-def process_local_mount(test_config, args):
+def process_local_mount(test_config, args, s3_settings):
     from control_tower.git_clone import post_artifact
     local_path = test_config["local_path"]
-    post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip", local_path)
+    post_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, f"{BUILD_ID}.zip", s3_settings, local_path)
     setattr(args, "artifact", f"{BUILD_ID}.zip")
     setattr(args, "bucket", "tests")
     globals()["compile_and_run"] = "true"
 
 
-def split_csv_file(args):
+def split_csv_file(args, s3_settings):
     from control_tower.csv_splitter import process_csv
     globals()["csv_array"] = process_csv(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact,
                                          args.bucket, CSV_FILES,
-                                         args.concurrency[0])
+                                         args.concurrency[0], s3_settings)
     concurrency, execution_params, job_type, container, channel = [], [], [], [], []
     for i in range(args.concurrency[0]):
         concurrency.append(1)
@@ -271,6 +272,7 @@ def start_job(args=None):
     aws_settings = args.integrations.get("clouds", {}).get("aws_integration", None)
     gcp_settings = args.integrations.get("clouds", {}).get("gcp_integration", None)
     kubernetes_settings = args.integrations.get("clouds", {}).get("kubernetes", None)
+    s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
 
     try:
         if aws_settings:
@@ -297,6 +299,7 @@ def start_job(args=None):
         if mounts:
             exec_params['mounts'] = mounts
         if args.job_type[i] in ['perfgun', 'perfmeter']:
+            exec_params['integrations'] = dumps(args.integrations)
             exec_params['config_yaml'] = {}
             if LOKI_HOST:
                 exec_params['loki_host'] = LOKI_HOST
@@ -389,7 +392,7 @@ def start_job(args=None):
                     # upload artifact
                     url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
                     file_payload = {"file": (f"{BUILD_ID}.zip", src_file)} 
-                    requests.post(url, headers=headers, files=file_payload)
+                    requests.post(url, params=s3_settings, headers=headers, files=file_payload)
                     
         if kubernetes_settings:
             task_kwargs = {
@@ -713,6 +716,7 @@ def test_was_canceled(test_id):
 def _start_and_track(args=None):
     if not args:
         args = arg_parse()
+    s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
     deviation = DEVIATION if args.deviation == 0 else args.deviation
     max_deviation = MAX_DEVIATION if args.max_deviation == 0 else args.max_deviation
     bitter, group_id, test_details = start_job(args)
@@ -720,10 +724,10 @@ def _start_and_track(args=None):
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
     if args.job_type[0] in ["dast", "sast", "dependency"] and args.quality_gate:
         logger.info("Processing security quality gate ...")
-        process_security_quality_gate(args)
+        process_security_quality_gate(args, s3_settings)
     if args.artifact == f"{BUILD_ID}.zip":
         from control_tower.git_clone import delete_artifact
-        delete_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact)
+        delete_artifact(GALLOPER_URL, TOKEN, PROJECT_ID, args.artifact, s3_settings)
     if globals().get("csv_array"):
         from control_tower.csv_splitter import delete_csv
         for each in globals().get("csv_array"):
@@ -731,8 +735,9 @@ def _start_and_track(args=None):
                 csv_name = list(_.keys())[0].replace("tests/", "")
                 delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
     if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
-        logger.info("Processing junit report ...")
-        process_junit_report(args)
+        if args.job_type[0] in ['perfgun', 'perfmeter']:
+            logger.info("Processing junit report ...")
+            process_junit_report(args, s3_settings)
 
 
 def start_and_track(args=None):
@@ -740,10 +745,10 @@ def start_and_track(args=None):
     exit(0)
 
 
-def process_security_quality_gate(args):
+def process_security_quality_gate(args, s3_settings):
     # Save jUnit report as file to local filesystem
     junit_report_data = download_junit_report(
-        args.job_type[0], f"{args.test_id}_junit_report.xml", retry=12
+        s3_settings, args.job_type[0], f"{args.test_id}_junit_report.xml", retry=12
     )
     if junit_report_data:
         with open(os.path.join(args.report_path, f"junit_report_{args.test_id}.xml"),
@@ -751,7 +756,7 @@ def process_security_quality_gate(args):
             rept.write(junit_report_data.text)
     # Quality Gate
     quality_gate_data = download_junit_report(
-        args.job_type[0], f"{args.test_id}_quality_gate_report.json", retry=12
+        s3_settings, args.job_type[0], f"{args.test_id}_quality_gate_report.json", retry=12
     )
     if not quality_gate_data:
         logger.info("No security quality gate data found")
@@ -764,10 +769,10 @@ def process_security_quality_gate(args):
         raise Exception
 
 
-def process_junit_report(args):
+def process_junit_report(args, s3_settings):
     file_name = "junit_report_{}.xml".format(BUILD_ID)
     results_bucket = str(args.job_name).replace("_", "").lower()
-    junit_report = download_junit_report(results_bucket, file_name, retry=12)
+    junit_report = download_junit_report(s3_settings, results_bucket, file_name, retry=12)
     if junit_report:
         with open("{}/{}".format(args.report_path, file_name), "w") as f:
             f.write(junit_report.text)
@@ -793,20 +798,20 @@ def process_junit_report(args):
                     f"Quality gate status: PASSED. Missed threshold rate lower than {quality_gate_rate}%")
 
 
-def download_junit_report(results_bucket, file_name, retry):
+def download_junit_report(s3_settings, results_bucket, file_name, retry):
     if PROJECT_ID:
         url = f'{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/{results_bucket}/{file_name}'
     else:
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
-    junit_report = requests.get(url, headers=headers, allow_redirects=True)
+    junit_report = requests.get(url, params=s3_settings, headers=headers, allow_redirects=True)
     if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         logger.info("Waiting for report to be accessible ...")
         retry -= 1
         if retry == 0:
             return None
         sleep(10)
-        return download_junit_report(results_bucket, file_name, retry)
+        return download_junit_report(s3_settings, results_bucket, file_name, retry)
     return junit_report
 
 # if __name__ == "__main__":
