@@ -96,7 +96,7 @@ def zipdir(ziph, zip_path="/tmp/git_dir"):
             ziph.write(os.path.join(root, f), os.path.join(root.replace(zip_path, ''), f))
 
 
-def post_artifact(galloper_url, token, project_id, artifact, local_path=None):
+def post_artifact(galloper_url, token, project_id, artifact, s3_settings, local_path=None):
     try:
         ziph = zipfile.ZipFile(f"/tmp/{artifact}", 'w', zipfile.ZIP_DEFLATED)
         if local_path:
@@ -107,12 +107,12 @@ def post_artifact(galloper_url, token, project_id, artifact, local_path=None):
         files = {'file': open(f"/tmp/{artifact}", 'rb')}
         headers = {'Authorization': f'bearer {token}'} if token else {}
         upload_url = f'{galloper_url}/api/v1/artifacts/artifacts/{project_id}/tests'
-        r = requests.post(upload_url, allow_redirects=True, files=files, headers=headers)
+        r = requests.post(upload_url, params=s3_settings, allow_redirects=True, files=files, headers=headers)
     except Exception:
         logger.error(format_exc())
 
 
-def delete_artifact(galloper_url, token, project_id, artifact):
+def delete_artifact(galloper_url, token, project_id, artifact, s3_settings):
     url = f'{galloper_url}/api/v1/artifacts/artifacts/{project_id}/tests'
     headers = {'Authorization': f'bearer {token}'} if token else {}
-    requests.delete(f'{url}?fname[]={artifact}', headers=headers)
+    requests.delete(f'{url}?fname[]={artifact}', params=s3_settings, headers=headers)
