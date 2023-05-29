@@ -646,14 +646,16 @@ def test_finished():
     return False
 
 
-def send_minio_dump_flag(result_code: int):
-    api_url = build_api_url('backend_performance', 'reports', skip_mode=True, trailing_slash=True)
-    url = f'{GALLOPER_URL}{api_url}{PROJECT_ID}'
-    logger.info("Saving logs to minio %s", api_url)
-    headers = {'Content-type': 'application/json'}
-    if TOKEN:
-        headers['Authorization'] = f'bearer {TOKEN}'
-    requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code})
+def send_minio_dump_flag(result_code: int, args):
+    if args.job_type[0] in ('perfgun', 'perfmeter', 'observer'):
+        lg_type = JOB_TYPE_MAPPING[args.job_type[0]]
+        api_url = build_api_url(CENTRY_MODULES_MAPPING[lg_type], 'reports', skip_mode=True, trailing_slash=True)
+        url = f'{GALLOPER_URL}{api_url}{PROJECT_ID}'
+        logger.info("Saving logs to minio %s", api_url)
+        headers = {'Content-type': 'application/json'}
+        if TOKEN:
+            headers['Authorization'] = f'bearer {TOKEN}'
+        requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code})
 
 
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):

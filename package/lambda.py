@@ -118,6 +118,6 @@ def handler(event: Union[List[dict], dict], context=None):
             'body': format_exc()
         }
 
-    send_minio_dump_flag(result['statusCode'])
+    send_minio_dump_flag(result['statusCode'], args)
 
     return result
