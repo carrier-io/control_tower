@@ -143,6 +143,9 @@ def append_test_config(args):
                         params[_[0]] = str(_[1]).strip()
         elif lg_type == 'dast':
             url = f"{GALLOPER_URL}/api/v1/security/test/{PROJECT_ID}/{args.test_id}"
+        elif lg_type == 'observer':
+            url = f"{GALLOPER_URL}/api/v1/ui_performance/test/{PROJECT_ID}/{args.test_id}"
+            params = {}
         else:
             logger.info(f"No data found for test_id={args.test_id}")
             raise RuntimeError(f"No data found for test_id={args.test_id}")
@@ -159,12 +162,13 @@ def append_test_config(args):
             logger.info(test_config.text)
             raise exc
         # set args and env vars
-        execution_params.append(loads(test_config["execution_params"]))
-        concurrency.append(test_config["concurrency"])
-        container.append(test_config["container"])
-        job_type.append(test_config["job_type"])
-        print("test_config ******************")
-        print(test_config)
+        try:
+            execution_params.append(loads(test_config["execution_params"]))
+            concurrency.append(test_config["concurrency"])
+            container.append(test_config["container"])
+            job_type.append(test_config["job_type"])
+        except Exception as e:
+            print(e)
         setattr(args, "job_name", test_config["job_name"])
         for each in ["artifact", "bucket", "job_name", "email_recipients"]:
             if not getattr(args, each) and each in test_config.keys():
@@ -490,12 +494,12 @@ def frontend_perf_test_start_notify(args):
 
         data = {
             "report_id": BUILD_ID.replace("build_", ""),
+            "test_uid" : args.test_id,
             "status": "In progress",
             "test_name": args.job_name,
             "base_url": "",
             "browser_name": browser_name,
             "browser_version": browser_version,
-            "env": args.execution_params[0]["ENV"],
             "loops": loops,
             "aggregation": aggregation,
             "time": datetime.utcnow().isoformat(" ").split(".")[0]
@@ -504,7 +508,7 @@ def frontend_perf_test_start_notify(args):
         if TOKEN:
             headers['Authorization'] = f'bearer {TOKEN}'
 
-        response = requests.post(f"{GALLOPER_URL}/api/v1/observer/{PROJECT_ID}", json=data,
+        response = requests.post(f"{GALLOPER_URL}/api/v1/ui_performance/reports/{PROJECT_ID}", json=data,
                                  headers=headers)
         try:
             logger.info(response.json()["message"])
@@ -635,11 +639,11 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
     return {"message": "Test is in progress", "code": 0}
 
 
-def test_finished():
+def test_finished(report_id=REPORT_ID):
     module = CENTRY_MODULES_MAPPING.get(report_type)
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
-    url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
+    url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
     res = requests.get(url, headers=headers).json()
     if res["message"].lower() in ["finished", "failed", "success"]:
         return True
@@ -666,7 +670,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
         package = get_project_package()
         max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
 
-    while not test_finished():
+    while not test_finished(test_id):
         sleep(60)
         if CHECK_SATURATION:
             test_status = check_test_is_saturating(test_id, deviation, max_deviation)
