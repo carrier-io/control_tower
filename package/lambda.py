@@ -6,7 +6,7 @@ from typing import List, Union
 from control_tower.config_mock import BulkConfig
 
 
-def parse_args(events: List[dict]) -> dict:
+def parse_args(events: List[dict]) -> BulkConfig:
     args = {
         "container": [],
         "execution_params": [],
@@ -88,11 +88,11 @@ def parse_args(events: List[dict]) -> dict:
     )
 
     from control_tower.run import str2bool, process_git_repo, split_csv_file
+    s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
     if "git" in events[0]:
-        s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
         process_git_repo(events[0], args, s3_settings)
     if loads(os.environ.get('csv_files', '{}')):
-        split_csv_file(args)
+        split_csv_file(args, s3_settings=s3_settings)
     return args
 
 
@@ -117,7 +117,5 @@ def handler(event: Union[List[dict], dict], context=None):
             'statusCode': 500,
             'body': format_exc()
         }
-
-    send_minio_dump_flag(result['statusCode'], args)
-
+    send_minio_dump_flag(result['statusCode'])
     return result

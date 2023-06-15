@@ -494,7 +494,7 @@ def frontend_perf_test_start_notify(args):
 
         data = {
             "report_id": BUILD_ID.replace("build_", ""),
-            "test_uid" : args.test_id,
+            "test_uid": args.test_id,
             "status": "In progress",
             "test_name": args.job_name,
             "base_url": "",
@@ -650,16 +650,15 @@ def test_finished(report_id=REPORT_ID):
     return False
 
 
-def send_minio_dump_flag(result_code: int, args):
-    if args.job_type[0] in ('perfgun', 'perfmeter', 'observer'):
-        lg_type = JOB_TYPE_MAPPING[args.job_type[0]]
-        api_url = build_api_url(CENTRY_MODULES_MAPPING[lg_type], 'reports', skip_mode=True, trailing_slash=True)
-        url = f'{GALLOPER_URL}{api_url}{PROJECT_ID}'
-        logger.info("Saving logs to minio %s", api_url)
-        headers = {'Content-type': 'application/json'}
-        if TOKEN:
-            headers['Authorization'] = f'bearer {TOKEN}'
-        requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code})
+def send_minio_dump_flag(result_code: int) -> None:
+    # do we need to check report_type?
+    api_url = build_api_url(CENTRY_MODULES_MAPPING.get(report_type), 'reports', skip_mode=True, trailing_slash=True)
+    url = f'{GALLOPER_URL}{api_url}{PROJECT_ID}'
+    logger.info("Saving logs to minio %s", api_url)
+    headers = {'Content-type': 'application/json'}
+    if TOKEN:
+        headers['Authorization'] = f'bearer {TOKEN}'
+    requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code})
 
 
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
