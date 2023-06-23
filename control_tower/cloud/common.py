@@ -16,11 +16,12 @@ def get_instances_requirements(args, cloud_config, queue_name):
         args.channel[i] = queue_name
         instance_count += args.concurrency[i]
 
-    if instance_count == 1 and args.job_type[0] in ['perfgun', 'perfmeter']:
-        cpu += 1
-        memory += 4
-    else:
-        instance_count += 1
+    if args.job_type[0] in ['perfgun', 'perfmeter']:
+        if instance_count == 1:
+            cpu += 1
+            memory += 4
+        else:
+            instance_count += 1
     if cpu > 8:
         logger.error("Max CPU cores limit should be less then 8")
         raise Exception

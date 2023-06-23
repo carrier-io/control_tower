@@ -111,6 +111,8 @@ def handler(event: Union[List[dict], dict], context=None):
             'body': "test is done"
         }
     except Exception as exc:
+        print(exc)
+        print(format_exc())
         from control_tower.run import update_test_status
         update_test_status(status="Failed", percentage=100, description=str(exc))
         result = {
