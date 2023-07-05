@@ -46,7 +46,7 @@ def parse_args(events: List[dict]) -> BulkConfig:
         args["job_name"] = event.get('job_name', 'test')
         artifact = event.get('artifact')
         if artifact:
-            args["artifact"] = event['file_name']
+            args["artifact"] = artifact['file_name']
             args["bucket"] = artifact.get('bucket', 'tests')
         args["save_reports"] = event.get('save_reports', False)
         args["junit"] = event.get('junit', False)
