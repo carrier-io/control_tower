@@ -327,8 +327,12 @@ def start_job(args=None):
             exec_params["test_name"] = args.job_name
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
-            exec_params['bucket'] = BUCKET if not args.bucket else args.bucket
-            exec_params['artifact'] = TEST if not args.artifact else args.artifact
+            if args.artifact:
+                exec_params['bucket'] = args.artifact['bucket']
+                exec_params['artifact'] = args.artifact['file_name']
+            else:
+                exec_params['bucket'] = BUCKET
+                exec_params['artifact'] = TEST
             exec_params['results_bucket'] = results_bucket
             exec_params['save_reports'] = args.save_reports
             if globals().get("compile_and_run") == "true":
