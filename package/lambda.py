@@ -44,8 +44,10 @@ def parse_args(events: List[dict]) -> BulkConfig:
         if "channel" in event:
             args["channel"].append(event["channel"])
         args["job_name"] = event.get('job_name', 'test')
-        args["bucket"] = event.get('bucket', '')
-        args["artifact"] = event.get('artifact', '')
+        artifact = event.get('artifact')
+        if artifact:
+            args["artifact"] = event['file_name']
+            args["bucket"] = artifact.get('bucket', 'tests')
         args["save_reports"] = event.get('save_reports', False)
         args["junit"] = event.get('junit', False)
         args["quality_gate"] = event.get('quality_gate', False)
