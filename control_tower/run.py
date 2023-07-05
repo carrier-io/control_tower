@@ -170,7 +170,7 @@ def append_test_config(args):
         except Exception as e:
             print(e)
         setattr(args, "job_name", test_config["job_name"])
-        for each in ["artifact", "bucket", "job_name", "email_recipients"]:
+        for each in ["job_name", "email_recipients"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, test_config[each])
         for each in ["container", "job_type", "channel"]:
@@ -194,8 +194,11 @@ def append_test_config(args):
     s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
     if "git" in test_config.keys():
         process_git_repo(test_config, args, s3_settings)
-    if "local_path" in test_config.keys():
+    elif "local_path" in test_config.keys():
         process_local_mount(test_config, args, s3_settings)
+    elif 'artifact' in test_config:
+        setattr(args, 'artifact', test_config['artifact']['file_name'])
+        setattr(args, 'bucket', test_config['artifact'].get('bucket', 'tests'))
     if CSV_FILES:
         split_csv_file(args, s3_settings)
     print(args)
@@ -327,13 +330,8 @@ def start_job(args=None):
             exec_params["test_name"] = args.job_name
             exec_params['DISTRIBUTED_MODE_PREFIX'] = DISTRIBUTED_MODE_PREFIX
             exec_params['galloper_url'] = GALLOPER_URL
-            if args.artifact:
-                exec_params['bucket'] = args.artifact['bucket']
-                exec_params['artifact'] = args.artifact['file_name']
-            else:
-                exec_params['bucket'] = BUCKET
-                exec_params['artifact'] = TEST
-            exec_params['results_bucket'] = results_bucket
+            exec_params['bucket'] = BUCKET if not args.bucket else args.bucket
+            exec_params['artifact'] = TEST if not args.artifact else args.artifact
             exec_params['save_reports'] = args.save_reports
             if globals().get("compile_and_run") == "true":
                 exec_params["compile_and_run"] = "true"
