@@ -1,4 +1,4 @@
-requests>=2.25.0
+requests>=2.31.0
 dulwich>=0.21.5
 paramiko>=2.7.2
 boto3>=1.27.0
