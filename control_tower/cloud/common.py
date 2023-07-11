@@ -4,7 +4,7 @@ from typing import Callable
 from arbiter import Arbiter
 
 from control_tower.constants import RABBIT_HOST, RABBIT_PORT, RABBIT_USER, RABBIT_PASSWORD, \
-    RABBIT_VHOST, GALLOPER_URL
+    RABBIT_VHOST, GALLOPER_URL, CONTAINER_TAG
 from control_tower.run import logger
 
 
@@ -75,15 +75,15 @@ def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name
     apt install docker.io -y
     '''
     user_data += f"docker pull {args.container[0]}\n"
-    user_data += f"docker pull getcarrier/performance_results_processing:latest\n"
+    user_data += f"docker pull getcarrier/performance_results_processing:{CONTAINER_TAG}\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA=1g -e CPU_QUOTA=1" \
                  f" -e CPU_CORES=1 -e RABBIT_HOST={RABBIT_HOST} -e RABBIT_USER={RABBIT_USER}" \
                  f" -e RABBIT_PASSWORD={RABBIT_PASSWORD} -e VHOST={RABBIT_VHOST} -e QUEUE_NAME={finalizer_queue_name}" \
                  f" -e LOKI_HOST={GALLOPER_URL.replace('https://', 'http://')} " \
-                 f"getcarrier/interceptor:latest\n"
+                 f"getcarrier/interceptor:{CONTAINER_TAG}\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA={memory}g -e CPU_QUOTA={cpu * 0.9}" \
                  f" -e CPU_CORES={cpu_cores} -e RABBIT_HOST={RABBIT_HOST} -e RABBIT_USER={RABBIT_USER}" \
                  f" -e RABBIT_PASSWORD={RABBIT_PASSWORD} -e VHOST={RABBIT_VHOST} -e QUEUE_NAME={queue_name}" \
                  f" -e LOKI_HOST={GALLOPER_URL.replace('https://', 'http://')} " \
-                 f"getcarrier/interceptor:latest"
+                 f"getcarrier/interceptor:{CONTAINER_TAG}"
     return user_data
