@@ -702,7 +702,8 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
     try:
         bitter.close()
     except Exception as e:
-        logger.info(e)
+        # logger.info(e)
+        ...
     return result
 
 

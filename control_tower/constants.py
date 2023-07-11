@@ -91,3 +91,5 @@ ENV_VARS_MAPPING = {
     "split_csv": "SPLIT_CSV",
     "csv_path": "CSV_PATH"
 }
+
+CONTAINER_TAG = 'beta-1.0'
