@@ -23,6 +23,7 @@ from datetime import datetime
 from json import dumps
 from time import sleep, time
 import xml.etree.ElementTree as et
+from traceback import format_exc
 
 import arbiter
 import requests
@@ -755,6 +756,7 @@ def start_and_track(args=None):
         _start_and_track(args)
     except:
         status_code = 500
+        logger.error(format_exc())
         raise
     finally:
         send_minio_dump_flag(status_code)
