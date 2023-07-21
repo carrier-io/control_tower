@@ -750,7 +750,14 @@ def _start_and_track(args=None):
 
 
 def start_and_track(args=None):
-    _start_and_track(args)
+    status_code = 200
+    try:
+        _start_and_track(args)
+    except:
+        status_code = 500
+        raise
+    finally:
+        send_minio_dump_flag(status_code)
     exit(0)
 
 
