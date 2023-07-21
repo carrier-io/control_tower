@@ -332,6 +332,7 @@ def start_job(args=None):
             exec_params['galloper_url'] = GALLOPER_URL
             exec_params['bucket'] = BUCKET if not args.bucket else args.bucket
             exec_params['artifact'] = TEST if not args.artifact else args.artifact
+            exec_params['results_bucket'] = results_bucket
             exec_params['save_reports'] = args.save_reports
             if globals().get("compile_and_run") == "true":
                 exec_params["compile_and_run"] = "true"
