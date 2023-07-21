@@ -92,4 +92,4 @@ ENV_VARS_MAPPING = {
     "csv_path": "CSV_PATH"
 }
 
-CONTAINER_TAG = 'latest'
+CONTAINER_TAG = 'beta-1.0'
