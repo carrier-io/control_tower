@@ -443,8 +443,9 @@ def start_job(args=None):
             "exec_params": dumps(exec_params),
         }
         queue_name = args.channel[0] if len(args.channel) > 0 else "default"
-        tasks.append(
-            arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
+        logger.critical('SKIPPING POST PROCESSOR WITH ARGS %s', post_processor_args)
+        # tasks.append(
+        #     arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
 
     if finalizer_task:
         tasks.append(finalizer_task)
