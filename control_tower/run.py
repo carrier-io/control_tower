@@ -306,7 +306,7 @@ def start_job(args=None):
         exec_params = deepcopy(args.execution_params[i])
         if mounts:
             exec_params['mounts'] = mounts
-        if args.job_type[i] in ['perfgun', 'perfmeter']:
+        if args.job_type[i] in {'perfgun', 'perfmeter'}:
             exec_params['integrations'] = dumps(args.integrations)
             exec_params['config_yaml'] = {}
             if LOKI_HOST:
@@ -429,7 +429,7 @@ def start_job(args=None):
 
                 tasks.append(
                     arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
-    if args.job_type[0] in ['perfgun', 'perfmeter']:
+    if args.job_type[0] in {'perfgun', 'perfmeter'}:
         post_processor_args = {
             "galloper_url": GALLOPER_URL,
             "project_id": PROJECT_ID,
@@ -650,7 +650,7 @@ def test_finished(report_id=REPORT_ID):
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
     res = requests.get(url, headers=headers).json()
-    if res["message"].lower() in ["finished", "failed", "success"]:
+    if res["message"].lower() in {"finished", "failed", "success", 'canceled', 'cancelled'}:
         return True
     return False
 
@@ -689,7 +689,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
         else:
             logger.info("Still processing ...")
         if test_was_canceled(test_id) and result != 1:
-            logger.info("Test was canceled")
+            logger.info("Test was cancelled")
             try:
                 bitter.kill_group(group_id)
             except Exception as e:
@@ -718,7 +718,7 @@ def test_was_canceled(test_id):
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
-            return True if status in ["Canceled", "Finished"] else False
+            return True if status in {'Cancelled', "Canceled", "Finished"} else False
         return False
     except:
         return False
@@ -733,7 +733,7 @@ def _start_and_track(args=None):
     bitter, group_id, test_details = start_job(args)
     logger.info("Job started, waiting for containers to settle ... ")
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
-    if args.job_type[0] in ["dast", "sast", "dependency"] and args.quality_gate:
+    if args.job_type[0] in {"dast", "sast", "dependency"} and args.quality_gate:
         logger.info("Processing security quality gate ...")
         process_security_quality_gate(args, s3_settings)
     if args.artifact == f"{BUILD_ID}.zip":
@@ -746,7 +746,7 @@ def _start_and_track(args=None):
                 csv_name = list(_.keys())[0].replace("tests/", "")
                 delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
     if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
-        if args.job_type[0] in ['perfgun', 'perfmeter']:
+        if args.job_type[0] in {'perfgun', 'perfmeter'}:
             logger.info("Processing junit report ...")
             process_junit_report(args, s3_settings)
 
