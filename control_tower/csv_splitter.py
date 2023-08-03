@@ -1,5 +1,7 @@
 import os
 import zipfile
+from typing import Optional
+
 import requests
 import shutil
 
@@ -7,7 +9,7 @@ import shutil
 def process_csv(galloper_url, token, project_id, artifact, bucket, csv_files, lg_count, s3_settings):
     download_artifact(galloper_url, project_id, token, bucket, artifact, s3_settings)
     files = split_csv(csv_files, lg_count)
-    csv_array = upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_count)
+    csv_array = upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_count, s3_settings)
     return csv_array
 
 
@@ -69,10 +71,11 @@ def split_csv(csv_files, lg_count):
     return csv_dict
 
 
-def upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_count):
+def upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_count, s3_settings: Optional[dict] = None):
     csv_array = []
     headers = {'Authorization': f'bearer {token}'}
     upload_url = f'{galloper_url}/api/v1/artifacts/artifacts/{project_id}/{bucket}'
+    params = {} if not s3_settings else s3_settings
 
     for i in range(lg_count):
         csv_part = []
@@ -81,7 +84,8 @@ def upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_cou
             _f = files[_csv_name].pop(0)
             csv_name = _f.replace("/tmp/csv_files/", "")
             _files = {'file': open(_f, 'rb')}
-            requests.post(upload_url, allow_redirects=True, files=_files, headers=headers)
+
+            requests.post(upload_url, allow_redirects=True, files=_files, headers=headers, params=params)
             csv_part.append({f"{bucket}/{csv_name}": f"/mnt/jmeter/{csv_path}"})
         csv_array.append(csv_part)
     return csv_array

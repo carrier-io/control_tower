@@ -244,23 +244,23 @@ def split_csv_file(args, s3_settings):
     args.channel = channel
 
 
-def parse_id():
-    parser = argparse.ArgumentParser(description='Carrier Command Center')
-    parser.add_argument('-g', '--groupid', type=str, default="",
-                        help="ID of the group for a task")
-    parser.add_argument('-c', '--container', type=str,
-                        help="Name of container to run the job e.g. getcarrier/dusty:latest")
-    parser.add_argument('-t', '--job_type', type=str,
-                        help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
-    parser.add_argument('-n', '--job_name', type=str,
-                        help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
-    args, _ = parser.parse_known_args()
-    if args.groupid:
-        for unparsed in _:
-            args.groupid += unparsed
-    if 'group_id' in args.groupid:
-        args.groupid = loads(args.groupid)
-    return args
+# def parse_id():
+#     parser = argparse.ArgumentParser(description='Carrier Command Center')
+#     parser.add_argument('-g', '--groupid', type=str, default="",
+#                         help="ID of the group for a task")
+#     parser.add_argument('-c', '--container', type=str,
+#                         help="Name of container to run the job e.g. getcarrier/dusty:latest")
+#     parser.add_argument('-t', '--job_type', type=str,
+#                         help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
+#     parser.add_argument('-n', '--job_name', type=str,
+#                         help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
+#     args, _ = parser.parse_known_args()
+#     if args.groupid:
+#         for unparsed in _:
+#             args.groupid += unparsed
+#     if 'group_id' in args.groupid:
+#         args.groupid = loads(args.groupid)
+#     return args
 
 
 def start_job(args=None):
@@ -650,7 +650,7 @@ def test_finished(report_id=REPORT_ID):
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
     res = requests.get(url, headers=headers).json()
-    if res["message"].lower() in {"finished", "failed", "success", 'canceled', 'cancelled'}:
+    if res["message"].lower() in {"finished", "failed", "success", 'canceled', 'cancelled', 'post processing (manual)'}:
         return True
     return False
 
@@ -718,7 +718,7 @@ def test_was_canceled(test_id):
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
-            return True if status in {'Cancelled', "Canceled", "Finished"} else False
+            return status in {'Cancelled', "Canceled", "post processing (manual)"}
         return False
     except:
         return False
