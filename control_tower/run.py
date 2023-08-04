@@ -694,8 +694,10 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
                 bitter.kill_group(group_id)
             except Exception as e:
                 logger.info(e)
-            logger.info("Terminated")
-            result = 1
+            finally:
+                logger.info("Terminated")
+                result = 1
+                break
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             logger.info(f"Exceeded max test duration - {max_duration} sec")
             try:
