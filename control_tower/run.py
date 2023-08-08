@@ -244,23 +244,23 @@ def split_csv_file(args, s3_settings):
     args.channel = channel
 
 
-def parse_id():
-    parser = argparse.ArgumentParser(description='Carrier Command Center')
-    parser.add_argument('-g', '--groupid', type=str, default="",
-                        help="ID of the group for a task")
-    parser.add_argument('-c', '--container', type=str,
-                        help="Name of container to run the job e.g. getcarrier/dusty:latest")
-    parser.add_argument('-t', '--job_type', type=str,
-                        help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
-    parser.add_argument('-n', '--job_name', type=str,
-                        help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
-    args, _ = parser.parse_known_args()
-    if args.groupid:
-        for unparsed in _:
-            args.groupid += unparsed
-    if 'group_id' in args.groupid:
-        args.groupid = loads(args.groupid)
-    return args
+# def parse_id():
+#     parser = argparse.ArgumentParser(description='Carrier Command Center')
+#     parser.add_argument('-g', '--groupid', type=str, default="",
+#                         help="ID of the group for a task")
+#     parser.add_argument('-c', '--container', type=str,
+#                         help="Name of container to run the job e.g. getcarrier/dusty:latest")
+#     parser.add_argument('-t', '--job_type', type=str,
+#                         help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
+#     parser.add_argument('-n', '--job_name', type=str,
+#                         help="Name of a job (e.g. unique job ID, like %JOBNAME%_%JOBID%)")
+#     args, _ = parser.parse_known_args()
+#     if args.groupid:
+#         for unparsed in _:
+#             args.groupid += unparsed
+#     if 'group_id' in args.groupid:
+#         args.groupid = loads(args.groupid)
+#     return args
 
 
 def start_job(args=None):
@@ -306,7 +306,7 @@ def start_job(args=None):
         exec_params = deepcopy(args.execution_params[i])
         if mounts:
             exec_params['mounts'] = mounts
-        if args.job_type[i] in ['perfgun', 'perfmeter']:
+        if args.job_type[i] in {'perfgun', 'perfmeter'}:
             exec_params['integrations'] = dumps(args.integrations)
             exec_params['config_yaml'] = {}
             if LOKI_HOST:
@@ -429,7 +429,7 @@ def start_job(args=None):
 
                 tasks.append(
                     arbiter.Task("execute", queue=queue_name, task_kwargs=task_kwargs))
-    if args.job_type[0] in ['perfgun', 'perfmeter']:
+    if args.job_type[0] in {'perfgun', 'perfmeter'}:
         post_processor_args = {
             "galloper_url": GALLOPER_URL,
             "project_id": PROJECT_ID,
@@ -444,7 +444,8 @@ def start_job(args=None):
         }
         queue_name = args.channel[0] if len(args.channel) > 0 else "default"
         tasks.append(
-            arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
+            arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args)
+        )
 
     if finalizer_task:
         tasks.append(finalizer_task)
@@ -649,9 +650,11 @@ def test_finished(report_id=REPORT_ID):
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
     res = requests.get(url, headers=headers).json()
-    if res["message"].lower() in ["finished", "failed", "success"]:
-        return True
-    return False
+    return res["message"].lower() in {
+        "finished", "failed", "success",
+        'canceled', 'cancelled', 'post processing (manual)',
+        'error'
+    }
 
 
 def send_minio_dump_flag(result_code: int) -> None:
@@ -688,13 +691,15 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
         else:
             logger.info("Still processing ...")
         if test_was_canceled(test_id) and result != 1:
-            logger.info("Test was canceled")
+            logger.info("Test was cancelled")
             try:
                 bitter.kill_group(group_id)
             except Exception as e:
                 logger.info(e)
-            logger.info("Terminated")
-            result = 1
+            finally:
+                logger.info("Terminated")
+                result = 1
+                break
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             logger.info(f"Exceeded max test duration - {max_duration} sec")
             try:
@@ -717,7 +722,7 @@ def test_was_canceled(test_id):
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
             status = requests.get(url, headers=headers).json()['message']
-            return True if status in ["Canceled", "Finished"] else False
+            return status in {'Cancelled', "Canceled", "post processing (manual)"}
         return False
     except:
         return False
@@ -732,7 +737,7 @@ def _start_and_track(args=None):
     bitter, group_id, test_details = start_job(args)
     logger.info("Job started, waiting for containers to settle ... ")
     track_job(bitter, group_id, test_details.get("id", None), deviation, max_deviation)
-    if args.job_type[0] in ["dast", "sast", "dependency"] and args.quality_gate:
+    if args.job_type[0] in {"dast", "sast", "dependency"} and args.quality_gate:
         logger.info("Processing security quality gate ...")
         process_security_quality_gate(args, s3_settings)
     if args.artifact == f"{BUILD_ID}.zip":
@@ -745,7 +750,7 @@ def _start_and_track(args=None):
                 csv_name = list(_.keys())[0].replace("tests/", "")
                 delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
     if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
-        if args.job_type[0] in ['perfgun', 'perfmeter']:
+        if args.job_type[0] in {'perfgun', 'perfmeter'}:
             logger.info("Processing junit report ...")
             process_junit_report(args, s3_settings)
 
