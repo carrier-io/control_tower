@@ -443,9 +443,9 @@ def start_job(args=None):
             "exec_params": dumps(exec_params),
         }
         queue_name = args.channel[0] if len(args.channel) > 0 else "default"
-        logger.critical('SKIPPING POST PROCESSOR WITH ARGS %s', post_processor_args)
-        # tasks.append(
-        #     arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args))
+        tasks.append(
+            arbiter.Task("post_process", queue=queue_name, task_kwargs=post_processor_args)
+        )
 
     if finalizer_task:
         tasks.append(finalizer_task)
@@ -650,9 +650,11 @@ def test_finished(report_id=REPORT_ID):
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
     res = requests.get(url, headers=headers).json()
-    if res["message"].lower() in {"finished", "failed", "success", 'canceled', 'cancelled', 'post processing (manual)'}:
-        return True
-    return False
+    return res["message"].lower() in {
+        "finished", "failed", "success",
+        'canceled', 'cancelled', 'post processing (manual)',
+        'error'
+    }
 
 
 def send_minio_dump_flag(result_code: int) -> None:
