@@ -20,7 +20,7 @@ from control_tower.config_mock import BulkConfig
 from control_tower import run
 
 
-test_response = {"container": "getcarrier/perfmeter:latest-5.3",
+test_response = {"container": "getcarrier/perfmeter:beta-2.0-5.3",
                  "execution_params": "{\"cmd\": \"-n -t /mnt/jmeter/test.jmx -Jinflux.port=8086 "
                                      "-Jinflux.host=example -Jinflux.username=test "
                                      "-Jinflux.password=test "
@@ -131,4 +131,3 @@ def test_start_job(arbiterMock, taskMock):
         assert 'callback' in arb.squad.call_args[1]
         result = run.track_job(bitter(), str(uuid4()), args.test_id)
         assert result == 0
-

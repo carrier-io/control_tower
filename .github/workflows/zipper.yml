@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        default: "latest"
+        default: "beta-2.0"
         description: "Release tag"
         required: true
 
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ARTIFACT_NAME: "control-tower.zip"
-      DEFAULT_TAG: "latest"
+      DEFAULT_TAG: "beta-2.0"
       LAMBDA_BUILDER: "lambci/lambda:build-python3.8"
       BUILD_PATH: "./package/result"
     steps:

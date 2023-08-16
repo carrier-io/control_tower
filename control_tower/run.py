@@ -68,7 +68,7 @@ def str2json(v):
 def arg_parse():
     parser = argparse.ArgumentParser(description='Carrier Command Center')
     parser.add_argument('-c', '--container', action="append", type=str, default=[],
-                        help="Name of container to run the job e.g. getcarrier/dusty:latest")
+                        help="Name of container to run the job e.g. getcarrier/dusty:beta-2.0")
     parser.add_argument('-e', '--execution_params', action="append", type=str2json, default=[],
                         help="Execution params for jobs e.g. \n"
                              "{\n\t'host': 'localhost', \n\t'port':'443', \n\t'protocol':'https'"
@@ -249,7 +249,7 @@ def split_csv_file(args, s3_settings):
 #     parser.add_argument('-g', '--groupid', type=str, default="",
 #                         help="ID of the group for a task")
 #     parser.add_argument('-c', '--container', type=str,
-#                         help="Name of container to run the job e.g. getcarrier/dusty:latest")
+#                         help="Name of container to run the job e.g. getcarrier/dusty:beta-2.0")
 #     parser.add_argument('-t', '--job_type', type=str,
 #                         help="Type of a job: e.g. sast, dast, perf-jmeter, perf-ui")
 #     parser.add_argument('-n', '--job_name', type=str,
@@ -399,9 +399,9 @@ def start_job(args=None):
                     }
                     # upload artifact
                     url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
-                    file_payload = {"file": (f"{BUILD_ID}.zip", src_file)} 
+                    file_payload = {"file": (f"{BUILD_ID}.zip", src_file)}
                     requests.post(url, params=s3_settings, headers=headers, files=file_payload)
-                    
+
         if kubernetes_settings:
             task_kwargs = {
                 'job_type': str(args.job_type[i]),
@@ -804,7 +804,7 @@ def process_junit_report(args, s3_settings):
             failed = testsuite.get('failures')
             total = testsuite.get('tests')
             errors = testsuite.get('errors')
-            skipped = testsuite.get('skipped')        
+            skipped = testsuite.get('skipped')
             failures = [failure.get('message') for failure in testsuite.findall("./testcase/failure")]
             logger.info("**********************************************")
             logger.info("* Performance testing jUnit report | Carrier *")
@@ -840,7 +840,7 @@ def download_junit_report(s3_settings, results_bucket, file_name, retry):
 # if __name__ == "__main__":
 #     from control_tower.config_mock import BulkConfig
 #     args = BulkConfig(
-#         bulk_container=["getcarrier/perfmeter:latest"],
+#         bulk_container=["getcarrier/perfmeter:beta-2.0"],
 #         bulk_params=[{"cmd": "-n -t /mnt/jmeter/FloodIO.jmx -Jtest_type=debug -Jenv_type=debug "
 #                              "-Jinflux.host= -JVUSERS=100 -JDURATION=1200 "
 #                              "-JRAMP_UP=60 -Jtest_name=Flood"}],
