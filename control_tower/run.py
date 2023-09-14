@@ -12,9 +12,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import os
+SSL_CERTS = os.environ.get('SSL_CERTS', '')
+
+from control_tower import ssl_support
+ssl_support.init(SSL_CERTS)
+
 import argparse
 import logging
-import os
 import re
 import tempfile
 import zipfile
@@ -299,7 +304,8 @@ def start_job(args=None):
 
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
     arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120)
+                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120,
+                          use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
     tasks = []
     exec_params = {}
     for i in range(len(args.concurrency)):
@@ -399,9 +405,9 @@ def start_job(args=None):
                     }
                     # upload artifact
                     url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
-                    file_payload = {"file": (f"{BUILD_ID}.zip", src_file)} 
+                    file_payload = {"file": (f"{BUILD_ID}.zip", src_file)}
                     requests.post(url, params=s3_settings, headers=headers, files=file_payload)
-                    
+
         if kubernetes_settings:
             task_kwargs = {
                 'job_type': str(args.job_type[i]),
@@ -804,7 +810,7 @@ def process_junit_report(args, s3_settings):
             failed = testsuite.get('failures')
             total = testsuite.get('tests')
             errors = testsuite.get('errors')
-            skipped = testsuite.get('skipped')        
+            skipped = testsuite.get('skipped')
             failures = [failure.get('message') for failure in testsuite.findall("./testcase/failure")]
             logger.info("**********************************************")
             logger.info("* Performance testing jUnit report | Carrier *")

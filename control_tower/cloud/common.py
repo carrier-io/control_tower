@@ -4,7 +4,7 @@ from typing import Callable
 from arbiter import Arbiter
 
 from control_tower.constants import RABBIT_HOST, RABBIT_PORT, RABBIT_USER, RABBIT_PASSWORD, \
-    RABBIT_VHOST, GALLOPER_URL, CONTAINER_TAG
+    RABBIT_VHOST, GALLOPER_URL, CONTAINER_TAG, RABBIT_USE_SSL, RABBIT_SSL_VERIFY
 from control_tower.run import logger
 
 
@@ -36,7 +36,8 @@ def get_instances_requirements(args, cloud_config, queue_name):
 def wait_for_instances_start(args, instance_count: int, terminate_instance_func: Callable):
     try:
         arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120)
+                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120,
+                          use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
     except:
         terminate_instance_func()
         raise Exception("Couldn't connect to RabbitMQ")
@@ -69,7 +70,7 @@ def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name
     else:
         cpu_cores = 1
     user_data = '''#!/bin/bash
-    
+
     apt update -y
     apt install docker -y
     apt install docker.io -y
