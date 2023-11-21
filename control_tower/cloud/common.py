@@ -1,5 +1,6 @@
 from time import sleep
 from typing import Callable
+from os import environ
 
 from arbiter import Arbiter
 
@@ -35,8 +36,8 @@ def get_instances_requirements(args, cloud_config, queue_name):
 
 def wait_for_instances_start(args, instance_count: int, terminate_instance_func: Callable):
     try:
-        arbiter = Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120,
+        arbiter = Arbiter(host=environ.get("RABBIT_HOST"), port=5672, user=environ.get("RABBIT_USER"),
+                          password=environ.get("RABBIT_PASSWORD"), vhost=environ.get("RABBIT_VHOST"), timeout=120,
                           use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
     except:
         terminate_instance_func()
@@ -78,13 +79,13 @@ def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name
     user_data += f"docker pull {args.container[0]}\n"
     user_data += f"docker pull getcarrier/performance_results_processing:{CONTAINER_TAG}\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA=1g -e CPU_QUOTA=1" \
-                 f" -e CPU_CORES=1 -e RABBIT_HOST={RABBIT_HOST} -e RABBIT_USER={RABBIT_USER}" \
-                 f" -e RABBIT_PASSWORD={RABBIT_PASSWORD} -e VHOST={RABBIT_VHOST} -e QUEUE_NAME={finalizer_queue_name}" \
+                 f" -e CPU_CORES=1 -e RABBIT_HOST={environ.get('RABBIT_HOST')} -e RABBIT_USER={environ.get('RABBIT_USER')}" \
+                 f" -e RABBIT_PASSWORD={environ.get('RABBIT_PASSWORD')} -e VHOST={environ.get('RABBIT_VHOST')} -e QUEUE_NAME={finalizer_queue_name}" \
                  f" -e LOKI_HOST={GALLOPER_URL.replace('https://', 'http://')} " \
                  f"getcarrier/interceptor:{CONTAINER_TAG}\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA={memory}g -e CPU_QUOTA={cpu * 0.9}" \
-                 f" -e CPU_CORES={cpu_cores} -e RABBIT_HOST={RABBIT_HOST} -e RABBIT_USER={RABBIT_USER}" \
-                 f" -e RABBIT_PASSWORD={RABBIT_PASSWORD} -e VHOST={RABBIT_VHOST} -e QUEUE_NAME={queue_name}" \
+                 f" -e CPU_CORES={cpu_cores} -e RABBIT_HOST={environ.get('RABBIT_HOST')} -e RABBIT_USER={environ.get('RABBIT_USER')}" \
+                 f" -e RABBIT_PASSWORD={environ.get('RABBIT_PASSWORD')} -e VHOST={environ.get('RABBIT_VHOST')} -e QUEUE_NAME={queue_name}" \
                  f" -e LOKI_HOST={GALLOPER_URL.replace('https://', 'http://')} " \
                  f"getcarrier/interceptor:{CONTAINER_TAG}"
     return user_data

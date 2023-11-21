@@ -190,8 +190,8 @@ def append_test_config(args):
             setattr(args, "integrations", test_config["integrations"])
         env_vars = test_config["cc_env_vars"]
         for key, value in env_vars.items():
-            if not environ.get(key, None):
-                globals()[ENV_VARS_MAPPING.get(key)] = value
+            environ[key] = value
+
 
     setattr(args, "execution_params", execution_params)
     setattr(args, "concurrency", concurrency)
@@ -303,9 +303,12 @@ def start_job(args=None):
         raise e
 
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
-    arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
-                          password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120,
-                          use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
+    # arb = arbiter.Arbiter(host=RABBIT_HOST, port=RABBIT_PORT, user=RABBIT_USER,
+    #                       password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120,
+    #                       use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
+    arb = arbiter.Arbiter(host=environ.get("RABBIT_HOST"), port=5672, user=environ.get("RABBIT_USER"),
+                      password=environ.get("RABBIT_PASSWORD"), vhost=environ.get("RABBIT_VHOST"), timeout=120,
+                      use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
     tasks = []
     exec_params = {}
     for i in range(len(args.concurrency)):
