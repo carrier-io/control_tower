@@ -76,9 +76,14 @@ def clone_repo(git_settings):
         # Patch paramiko to use our key
         paramiko.client.SSHClient._auth = _paramiko_client_SSHClient_auth(paramiko.client.SSHClient._auth, pkey)
     # Clone repository
-    repository = porcelain.clone(
-        source, target, checkout=False, depth=depth, **auth_args
-    )
+    try:
+        repository = porcelain.clone(
+            source, target, checkout=False, depth=depth, **auth_args
+        )
+    except Exception as e:
+        logger.error("GIT clone error ********************")
+        logger.error(e)
+        raise e
     try:
         branch = branch.encode("utf-8")
         repository[b"refs/heads/" + branch] = repository[b"refs/remotes/origin/" + branch]

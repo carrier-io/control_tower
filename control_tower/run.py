@@ -198,6 +198,7 @@ def append_test_config(args):
     setattr(args, "container", container)
     setattr(args, "job_type", job_type)
     s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
+    environ["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     if "git" in test_config.keys():
         process_git_repo(test_config, args, s3_settings)
     elif "local_path" in test_config.keys():
@@ -278,7 +279,6 @@ def start_job(args=None):
             if allowable_load_generators != -1 and allowable_load_generators < each:
                 raise Exception(
                     f"Only {allowable_load_generators} parallel load generators allowable for {package} package.")
-    globals()["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     finalizer_task = None
 
     # Cloud integrations
@@ -485,7 +485,7 @@ def start_job(args=None):
 
 
 def update_test_status(status, percentage, description):
-    module = CENTRY_MODULES_MAPPING.get(report_type)
+    module = CENTRY_MODULES_MAPPING.get(environ.get("report_type"))
     data = {"test_status": {"status": status, "percentage": percentage,
                             "description": description}}
     headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
@@ -654,7 +654,7 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
 
 
 def test_finished(report_id=REPORT_ID):
-    module = CENTRY_MODULES_MAPPING.get(report_type)
+    module = CENTRY_MODULES_MAPPING.get(environ.get("report_type"))
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
@@ -668,7 +668,7 @@ def test_finished(report_id=REPORT_ID):
 
 def send_minio_dump_flag(result_code: int) -> None:
     # do we need to check report_type?
-    api_url = build_api_url(CENTRY_MODULES_MAPPING.get(report_type), 'reports', skip_mode=True, trailing_slash=True)
+    api_url = build_api_url(CENTRY_MODULES_MAPPING.get(environ.get("report_type")), 'reports', skip_mode=True, trailing_slash=True)
     url = f'{GALLOPER_URL}{api_url}{PROJECT_ID}'
     logger.info("Saving logs to minio %s", api_url)
     headers = {'Content-type': 'application/json'}
@@ -725,8 +725,8 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
 
 def test_was_canceled(test_id):
     try:
-        if test_id and PROJECT_ID and GALLOPER_URL and report_type:
-            module = CENTRY_MODULES_MAPPING.get(report_type)
+        if test_id and PROJECT_ID and GALLOPER_URL and environ.get("report_type"):
+            module = CENTRY_MODULES_MAPPING.get(environ.get("report_type"))
             url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{test_id}'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"

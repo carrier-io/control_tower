@@ -89,8 +89,9 @@ def parse_args(events: List[dict]) -> BulkConfig:
         integrations=args["integrations"]
     )
 
-    from control_tower.run import str2bool, process_git_repo, split_csv_file
+    from control_tower.run import str2bool, process_git_repo, split_csv_file, JOB_TYPE_MAPPING
     s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
+    os.environ["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     if "git" in events[0]:
         process_git_repo(events[0], args, s3_settings)
     if loads(os.environ.get('csv_files', '{}')):
