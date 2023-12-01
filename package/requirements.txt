@@ -4,6 +4,6 @@ paramiko>=2.7.2
 boto3>=1.27.0
 google-cloud-compute==1.11.0
 google-auth==2.21.0
-git+https://github.com/carrier-io/arbiter.git
+git+https://github.com/carrier-io/arbiter.git@tasknode
 git+https://github.com/carrier-io/control_tower.git
 git+https://github.com/carrier-io/loki_logger.git

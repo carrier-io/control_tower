@@ -2,7 +2,8 @@ from time import sleep
 from typing import Callable
 from os import environ
 
-from arbiter import Arbiter
+import ssl
+from arbiter import Arbiter, EventNode, RedisEventNode
 
 from control_tower.constants import RABBIT_HOST, RABBIT_PORT, RABBIT_USER, RABBIT_PASSWORD, \
     RABBIT_VHOST, GALLOPER_URL, CONTAINER_TAG, RABBIT_USE_SSL, RABBIT_SSL_VERIFY
@@ -36,12 +37,83 @@ def get_instances_requirements(args, cloud_config, queue_name):
 
 def wait_for_instances_start(args, instance_count: int, terminate_instance_func: Callable):
     try:
-        arbiter = Arbiter(host=environ.get("RABBIT_HOST"), port=5672, user=environ.get("RABBIT_USER"),
-                          password=environ.get("RABBIT_PASSWORD"), vhost=environ.get("RABBIT_VHOST"), timeout=120,
-                          use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
+        event_node_runtime = environ.get("ARBITER_RUNTIME", "rabbitmq")
+        #
+        if event_node_runtime == "rabbitmq":
+            node_config = {
+                "use_ssl": environ.get("RABBIT_USE_SSL", "").lower() in ["true", "yes"],
+                "ssl_verify": environ.get("RABBIT_SSL_VERIFY", "").lower() in ["true", "yes"],
+                "host": environ.get("RABBIT_HOST"),
+                "port": int(environ.get("RABBIT_PORT", "5672")),
+                "user": environ.get("RABBIT_USER"),
+                "password": environ.get("RABBIT_PASSWORD"),
+                "vhost": environ.get("RABBIT_VHOST"),
+                "queue": "tasks",
+                "hmac_key": None,
+                "hmac_digest": "sha512",
+                "callback_workers": int(environ.get("EVENT_NODE_WORKERS", "1")),
+                "mute_first_failed_connections": 10,
+            }
+            #
+            ssl_context=None
+            ssl_server_hostname=None
+            #
+            if node_config.get("use_ssl", False):
+                ssl_context = ssl.create_default_context()
+                if node_config.get("ssl_verify", False) is True:
+                    ssl_context.verify_mode = ssl.CERT_REQUIRED
+                    ssl_context.check_hostname = True
+                    ssl_context.load_default_certs()
+                else:
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                ssl_server_hostname = node_config.get("host")
+            #
+            event_node = EventNode(
+                host=node_config.get("host"),
+                port=node_config.get("port", 5672),
+                user=node_config.get("user", ""),
+                password=node_config.get("password", ""),
+                vhost=node_config.get("vhost", "carrier"),
+                event_queue=node_config.get("queue", "rpc"),
+                hmac_key=node_config.get("hmac_key", None),
+                hmac_digest=node_config.get("hmac_digest", "sha512"),
+                callback_workers=node_config.get("callback_workers", 1),
+                ssl_context=ssl_context,
+                ssl_server_hostname=ssl_server_hostname,
+                mute_first_failed_connections=node_config.get("mute_first_failed_connections", 10),  # pylint: disable=C0301
+            )
+        elif event_node_runtime == "redis":
+            node_config = {
+                "host": environ.get("REDIS_HOST"),
+                "port": int(environ.get("REDIS_PORT", "6379")),
+                "password": environ.get("REDIS_PASSWORD"),
+                "queue": environ.get("REDIS_VHOST"),
+                "hmac_key": None,
+                "hmac_digest": "sha512",
+                "callback_workers": int(environ.get("EVENT_NODE_WORKERS", "1")),
+                "mute_first_failed_connections": 10,
+                "use_ssl": environ.get("REDIS_USE_SSL", "").lower() in ["true", "yes"],
+            }
+            #
+            event_node = RedisEventNode(
+                host=node_config.get("host"),
+                port=node_config.get("port", 6379),
+                password=node_config.get("password", ""),
+                event_queue=node_config.get("queue", "events"),
+                hmac_key=node_config.get("hmac_key", None),
+                hmac_digest=node_config.get("hmac_digest", "sha512"),
+                callback_workers=node_config.get("callback_workers", 1),
+                mute_first_failed_connections=node_config.get("mute_first_failed_connections", 10),  # pylint: disable=C0301
+                use_ssl=node_config.get("use_ssl", False),
+            )
+        else:
+            raise ValueError(f"Unsupported arbiter runtime: {event_node_runtime}")
+        #
+        arbiter = Arbiter(event_node=event_node)
     except:
         terminate_instance_func()
-        raise Exception("Couldn't connect to RabbitMQ")
+        raise Exception("Couldn't connect to Arbiter")
     retry = 10
     while retry != 0:
         try:
