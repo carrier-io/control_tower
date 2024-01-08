@@ -307,7 +307,7 @@ def start_job(args=None):
     #                       password=RABBIT_PASSWORD, vhost=RABBIT_VHOST, timeout=120,
     #                       use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
     arb = arbiter.Arbiter(host=environ.get("RABBIT_HOST"), port=5672, user=environ.get("RABBIT_USER"),
-                      password=environ.get("RABBIT_PASSWORD"), vhost=environ.get("RABBIT_VHOST"), timeout=120,
+                      password=environ.get("RABBIT_PASSWORD"), vhost=environ.get("RABBIT_VHOST", "carrier"), timeout=120,
                       use_ssl=RABBIT_USE_SSL, ssl_verify=RABBIT_SSL_VERIFY)
     tasks = []
     exec_params = {}
