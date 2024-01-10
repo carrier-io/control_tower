@@ -480,6 +480,8 @@ def start_job(args=None):
     else:
         if args.job_type[0] == "observer":
             test_details = frontend_perf_test_start_notify(args)
+            globals()["REPORT_ID"] = str(test_details["id"]) \
+                if "id" in test_details.keys() else None
 
     return arb, group_id, test_details
 
@@ -680,10 +682,15 @@ def send_minio_dump_flag(result_code: int) -> None:
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
     result = 0
     test_start = time()
-    max_duration = -1
-    if GALLOPER_URL and PROJECT_ID and TOKEN:
-        package = get_project_package()
-        max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
+    try:
+        max_duration = int(os.environ.get("max_test_duration", -1))
+    except:
+        max_duration = -1
+
+    # TODO check project qoutas
+    # if GALLOPER_URL and PROJECT_ID and TOKEN:
+        # package = get_project_package()
+        # max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
 
     while not test_finished(test_id):
         sleep(60)
@@ -711,6 +718,8 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
                 break
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             logger.info(f"Exceeded max test duration - {max_duration} sec")
+            update_test_status(status="cancelled", percentage=100,
+                               description=f"Exceeded max test duration - {max_duration} sec")
             try:
                 bitter.kill_group(group_id)
             except Exception as e:
