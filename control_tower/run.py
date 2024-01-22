@@ -32,10 +32,21 @@ from traceback import format_exc
 
 import arbiter
 import requests
+import urllib3  # pylint: disable=E0401
 from centry_loki import log_loki
 
 from control_tower.constants import *
 from control_tower.utils import build_api_url
+
+# Disable requests/urllib3 logging
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+# Disable SSL warnings
+urllib3.disable_warnings()
+requests.packages.urllib3.disable_warnings()  # pylint: disable=E1101
+# Disable additional logging
+logging.getLogger("pika").setLevel(logging.WARNING)
+logging.getLogger("paramiko.hostkeys").setLevel(logging.WARNING)
 
 if REPORT_ID:
     loki_context = {
