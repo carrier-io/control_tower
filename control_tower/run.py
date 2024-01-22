@@ -387,23 +387,8 @@ def start_job(args=None):
 
         elif args.job_type[i] == "dast":
             if not REPORT_ID:
-                url = f"{GALLOPER_URL}/api/v1/security/test/{PROJECT_ID}/{args.test_id}"
-                #
-                headers = {'content-type': 'application/json'}
-                if TOKEN:
-                    headers['Authorization'] = f'bearer {TOKEN}'
-                #
-                data = {
-                    "type": True,
-                }
-                #
-                response = requests.post(
-                    url, json=data, headers=headers,
-                    verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]
-                )
-                #
-                report = response.json()["cc_env_vars"]["REPORT_ID"]
-                globals()["REPORT_ID"] = report
+                globals()["REPORT_ID"] = environ["REPORT_ID"]
+                globals()["BUILD_ID"] = environ["build_id"]
             #
             exec_params['build_id'] = BUILD_ID
             exec_params['report_id'] = REPORT_ID
@@ -411,23 +396,8 @@ def start_job(args=None):
 
         elif args.job_type[i] in ("sast", "dependency"):
             if not REPORT_ID:
-                url = f"{GALLOPER_URL}/api/v1/security_{args.job_type[i]}/test/{PROJECT_ID}/{args.test_id}"
-                #
-                headers = {'content-type': 'application/json'}
-                if TOKEN:
-                    headers['Authorization'] = f'bearer {TOKEN}'
-                #
-                data = {
-                    "type": True,
-                }
-                #
-                response = requests.post(
-                    url, json=data, headers=headers,
-                    verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]
-                )
-                #
-                report = response.json()["cc_env_vars"]["REPORT_ID"]
-                globals()["REPORT_ID"] = report
+                globals()["REPORT_ID"] = environ["REPORT_ID"]
+                globals()["BUILD_ID"] = environ["build_id"]
             #
             exec_params['build_id'] = BUILD_ID
             exec_params['report_id'] = REPORT_ID
