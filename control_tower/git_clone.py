@@ -112,7 +112,7 @@ def post_artifact(galloper_url, token, project_id, artifact, s3_settings, local_
         files = {'file': open(f"/tmp/{artifact}", 'rb')}
         headers = {'Authorization': f'bearer {token}'} if token else {}
         upload_url = f'{galloper_url}/api/v1/artifacts/artifacts/{project_id}/tests'
-        r = requests.post(upload_url, params=s3_settings, allow_redirects=True, files=files, headers=headers)
+        r = requests.post(upload_url, params=s3_settings, allow_redirects=True, files=files, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     except Exception:
         logger.error(format_exc())
 
@@ -120,4 +120,4 @@ def post_artifact(galloper_url, token, project_id, artifact, s3_settings, local_
 def delete_artifact(galloper_url, token, project_id, artifact, s3_settings):
     url = f'{galloper_url}/api/v1/artifacts/artifacts/{project_id}/tests'
     headers = {'Authorization': f'bearer {token}'} if token else {}
-    requests.delete(f'{url}?fname[]={artifact}', params=s3_settings, headers=headers)
+    requests.delete(f'{url}?fname[]={artifact}', params=s3_settings, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])

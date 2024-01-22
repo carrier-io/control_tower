@@ -16,7 +16,7 @@ def process_csv(galloper_url, token, project_id, artifact, bucket, csv_files, lg
 def download_artifact(galloper_url, project_id, token, bucket, artifact, s3_settings):
     endpoint = f'/api/v1/artifacts/artifact/{project_id}/{bucket}/{artifact}'
     headers = {'Authorization': f'bearer {token}'}
-    r = requests.get(f'{galloper_url}{endpoint}', params=s3_settings, allow_redirects=True, headers=headers)
+    r = requests.get(f'{galloper_url}{endpoint}', params=s3_settings, allow_redirects=True, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     with open("/tmp/file_data.zip", 'wb') as file_data:
         file_data.write(r.content)
     try:
@@ -85,7 +85,7 @@ def upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_cou
             csv_name = _f.replace("/tmp/csv_files/", "")
             _files = {'file': open(_f, 'rb')}
 
-            requests.post(upload_url, allow_redirects=True, files=_files, headers=headers, params=params)
+            requests.post(upload_url, allow_redirects=True, files=_files, headers=headers, params=params, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
             csv_part.append({f"{bucket}/{csv_name}": f"/mnt/jmeter/{csv_path}"})
         csv_array.append(csv_part)
     return csv_array
@@ -94,4 +94,4 @@ def upload_csv(galloper_url, token, project_id, files, bucket, csv_files, lg_cou
 def delete_csv(galloper_url, token, project_id, artifact):
     url = f'{galloper_url}/api/v1/artifacts/artifacts/{project_id}/tests'
     headers = {'Authorization': f'bearer {token}'} if token else {}
-    requests.delete(f'{url}?fname[]={artifact}', headers=headers)
+    requests.delete(f'{url}?fname[]={artifact}', headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
