@@ -149,6 +149,10 @@ def append_test_config(args):
                         params[_[0]] = str(_[1]).strip()
         elif lg_type == 'dast':
             url = f"{GALLOPER_URL}/api/v1/security/test/{PROJECT_ID}/{args.test_id}"
+        elif lg_type == 'sast':
+            url = f"{GALLOPER_URL}/api/v1/security_sast/test/{PROJECT_ID}/{args.test_id}"
+        elif lg_type == 'dependency':
+            url = f"{GALLOPER_URL}/api/v1/security_dependency/test/{PROJECT_ID}/{args.test_id}"
         elif lg_type == 'observer':
             url = f"{GALLOPER_URL}/api/v1/ui_performance/test/{PROJECT_ID}/{args.test_id}"
             params = {}
