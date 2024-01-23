@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        default: "latest"
+        default: "tasknode"
         description: "Release tag"
         required: true
 
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ARTIFACT_NAME: "control-tower.zip"
-      DEFAULT_TAG: "latest"
+      DEFAULT_TAG: "tasknode"
       LAMBDA_BUILDER: "lambci/lambda:build-python3.8"
       BUILD_PATH: "./package/result"
     steps:
@@ -44,6 +44,6 @@ jobs:
       uses: ncipollo/release-action@v1.12.0
       with:
         artifacts: ./${{ env.ARTIFACT_NAME }}
-        makeLatest: true
+        makeLatest: false
         allowUpdates: true
         tag: ${{ github.event.inputs.tag || env.DEFAULT_TAG }}
