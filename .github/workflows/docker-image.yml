@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
         docker_tag:
-          default: "getcarrier/control_tower:latest"
+          default: "getcarrier/control_tower:tasknode"
           description: "Docker image name and tag"
           required: true
 
@@ -38,4 +38,4 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           push: true
-          tags: ${{ inputs.docker_tag || 'getcarrier/control_tower:latest' }}
+          tags: ${{ inputs.docker_tag || 'getcarrier/control_tower:tasknode' }}
