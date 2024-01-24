@@ -552,6 +552,19 @@ def start_job(args=None):
             queue_name = args.channel[i] if len(args.channel) > i else "__internal"
             tasks.append(
                 arbiter.Task("execute_kuber", queue=queue_name, task_kwargs=task_kwargs))
+        elif environ.get("EXECUTOR_RUNTIME", "default") == "kubernetes":
+            task_kwargs = {
+                'job_type': str(args.job_type[i]),
+                'container': args.container[i],
+                'execution_params': exec_params,
+                'job_name': args.job_name,
+                'kubernetes_settings': {
+                    "jobs_count": int(args.concurrency[i]),
+                }
+            }
+            queue_name = args.channel[i] if len(args.channel) > i else "__internal"
+            tasks.append(
+                arbiter.Task("execute_kuber", queue=queue_name, task_kwargs=task_kwargs))
         else:
             queue_name = args.channel[i] if len(args.channel) > i else "default"
             for _ in range(int(args.concurrency[i])):
