@@ -3,7 +3,7 @@ from typing import Callable
 from os import environ
 
 import ssl
-from arbiter import Arbiter, EventNode, RedisEventNode
+from arbiter import Arbiter, EventNode, RedisEventNode, SocketIOEventNode
 
 from control_tower.constants import RABBIT_HOST, RABBIT_PORT, RABBIT_USER, RABBIT_PASSWORD, \
     RABBIT_VHOST, GALLOPER_URL, CONTAINER_TAG, RABBIT_USE_SSL, RABBIT_SSL_VERIFY
@@ -106,6 +106,28 @@ def wait_for_instances_start(args, instance_count: int, terminate_instance_func:
                 callback_workers=node_config.get("callback_workers", 1),
                 mute_first_failed_connections=node_config.get("mute_first_failed_connections", 10),  # pylint: disable=C0301
                 use_ssl=node_config.get("use_ssl", False),
+            )
+        elif event_node_runtime == "socketio":
+            node_config = {
+                "url": environ.get("SIO_URL"),
+                "password": environ.get("SIO_PASSWORD"),
+                "room": environ.get("SIO_VHOST"),
+                "hmac_key": None,
+                "hmac_digest": "sha512",
+                "callback_workers": int(environ.get("EVENT_NODE_WORKERS", "1")),
+                "mute_first_failed_connections": 10,
+                "ssl_verify": environ.get("SIO_SSL_VERIFY", "").lower() in ["true", "yes"],
+            }
+            #
+            event_node = SocketIOEventNode(
+                url=node_config.get("url"),
+                password=node_config.get("password", ""),
+                room=node_config.get("room", "events"),
+                hmac_key=node_config.get("hmac_key", None),
+                hmac_digest=node_config.get("hmac_digest", "sha512"),
+                callback_workers=node_config.get("callback_workers", 1),
+                mute_first_failed_connections=node_config.get("mute_first_failed_connections", 10),  # pylint: disable=C0301
+                ssl_verify=node_config.get("ssl_verify", False),
             )
         else:
             raise ValueError(f"Unsupported arbiter runtime: {event_node_runtime}")
