@@ -1,4 +1,5 @@
 import os
+import time
 from traceback import format_exc
 from json import loads
 from typing import List, Union
@@ -101,26 +102,38 @@ def parse_args(events: List[dict]) -> BulkConfig:
 
 def handler(event: Union[List[dict], dict], context=None):
     from control_tower.run import _start_and_track, send_minio_dump_flag
-    try:
-        if not os.path.exists('/tmp/reports'):
-            os.mkdir('/tmp/reports')
-        if isinstance(event, dict):
-            args = parse_args([event])
-        else:
-            args = parse_args(event)
-        _start_and_track(args)
-        result = {
-            'statusCode': 200,
-            'body': "test is done"
-        }
-    except Exception as exc:
-        print(exc)
-        print(format_exc())
-        from control_tower.run import update_test_status
-        update_test_status(status="Failed", percentage=100, description=str(exc))
-        result = {
-            'statusCode': 500,
-            'body': format_exc()
-        }
-    send_minio_dump_flag(result['statusCode'])
+    result = {
+        'statusCode': 200,
+        'body': "test is done"
+    }
+    if event["job_type"] == "suite":
+        print("Executing test suite")
+        from control_tower.suite import start_and_track_test_suite
+        for key, value in event["cc_env_vars"].items():
+            os.environ[key] = value
+        start_and_track_test_suite(args=event)
+    else:
+        print("Executing performance test")
+        try:
+            if not os.path.exists('/tmp/reports'):
+                os.mkdir('/tmp/reports')
+            if isinstance(event, dict):
+                args = parse_args([event])
+            else:
+                args = parse_args(event)
+            _start_and_track(args)
+            result = {
+                'statusCode': 200,
+                'body': "test is done"
+            }
+        except Exception as exc:
+            print(exc)
+            print(format_exc())
+            from control_tower.run import update_test_status
+            update_test_status(status="Failed", percentage=100, description=str(exc))
+            result = {
+                'statusCode': 500,
+                'body': format_exc()
+            }
+        send_minio_dump_flag(result['statusCode'])
     return result

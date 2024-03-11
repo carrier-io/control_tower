@@ -36,7 +36,7 @@ def _paramiko_client_SSHClient_auth(original_auth, forced_pkey):
     return __paramiko_client_SSHClient_auth
 
 
-def clone_repo(git_settings):
+def clone_repo(git_settings, test_build_id=None):
     logger.info("Cloning git repo ...")
     # Patch dulwich to work without valid UID/GID
     dulwich.repo.__original__get_default_identity = dulwich.repo._get_default_identity
@@ -51,10 +51,17 @@ def clone_repo(git_settings):
     except:  # pylint: disable=W0702
         os.environ["USERNAME"] = "git"
 
-    os.mkdir("/tmp/git_dir")
+    try:
+        os.mkdir("/tmp/git_dir")
+    except:
+        ...
+    if test_build_id:
+        os.mkdir(f"/tmp/git_dir/{test_build_id}")
+        target = f"/tmp/git_dir/{test_build_id}"
+    else:
+        target = "/tmp/git_dir"
     # Get options
     source = git_settings.get("repo")
-    target = "/tmp/git_dir"
     branch = git_settings.get("repo_branch")
     if not branch:
         branch = "master"

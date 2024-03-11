@@ -5,25 +5,34 @@ import arbiter
 import boto3
 
 from control_tower.cloud.common import wait_for_instances_start, get_instance_init_script, \
-    get_instances_requirements
+    get_instances_requirements, get_instances_requirements_for_suite
 from control_tower.run import logger
 
 ec2 = None
 
 
-def create_aws_instances(args, aws_config):
+def create_aws_instances(args, aws_config, is_suite=False, queue_name=None, settings=None):
     logger.info("Requesting Spot Fleets...")
-    queue_name = str(uuid4())
+    if is_suite and queue_name:
+        print("Request instances for test suite")
+        cpu, instance_count, memory = get_instances_requirements_for_suite(settings, aws_config, queue_name)
+    else:
+        queue_name = str(uuid4())
+        cpu, instance_count, memory = get_instances_requirements(args, aws_config, queue_name)
     finalizer_queue_name = str(uuid4())
 
-    cpu, instance_count, memory = get_instances_requirements(args, aws_config, queue_name)
+
 
     global ec2
     ec2 = boto3.client('ec2', aws_access_key_id=aws_config.get("aws_access_key"),
                        aws_secret_access_key=aws_config["aws_secret_access_key"],
                        region_name=aws_config["region_name"])
 
-    user_data = get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name, instance_count)
+    if is_suite:
+        user_data = get_instance_init_script(settings["container_name"], cpu, finalizer_queue_name, memory, queue_name, instance_count)
+    else:
+        user_data = get_instance_init_script(args.container[0], cpu, finalizer_queue_name, memory, queue_name,
+                                             instance_count)
     user_data = base64.b64encode(user_data.encode("ascii")).decode("ascii")
     launch_template_config = {
         "LaunchTemplateName": f"{queue_name}",
@@ -104,10 +113,11 @@ def create_aws_instances(args, aws_config):
             error_msg = "Error while creating spot fleet"
         raise Exception(error_msg)
 
-    wait_for_instances_start(
-        args, instance_count,
-        lambda: terminate_spot_instances(fleet_id, launch_template_id)
-    )
+    if not is_suite:
+        wait_for_instances_start(
+            args, instance_count,
+            lambda: terminate_spot_instances(fleet_id, launch_template_id)
+        )
 
     ec2_settings = {
         "aws_access_key_id": aws_config.get("aws_access_key"),
@@ -118,7 +128,10 @@ def create_aws_instances(args, aws_config):
     }
     finalizer_task = arbiter.Task("terminate_ec2_instances", queue=finalizer_queue_name,
                                   task_type="finalize", task_kwargs=ec2_settings)
-    return finalizer_task
+    if is_suite:
+        return finalizer_task, instance_count, fleet_id, launch_template_id
+    else:
+        return finalizer_task
 
 
 def terminate_spot_instances(fleet_id: str = "", template_id: str = ""):

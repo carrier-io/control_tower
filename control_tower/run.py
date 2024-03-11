@@ -683,29 +683,15 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
     result = 0
     test_start = time()
     try:
-        max_duration = int(os.environ.get("max_test_duration", -1))
+        max_duration = int(os.environ.get("test_duration_limit", -1))
+        if max_duration != -1:
+            max_duration += 60 # add extra minute for test preparation
     except:
         max_duration = -1
 
-    # TODO check project qoutas
-    # if GALLOPER_URL and PROJECT_ID and TOKEN:
-        # package = get_project_package()
-        # max_duration = PROJECT_PACKAGE_MAPPER.get(package)["duration"]
-
     while not test_finished(test_id):
         sleep(60)
-        if CHECK_SATURATION:
-            test_status = check_test_is_saturating(test_id, deviation, max_deviation)
-            if test_status.get("code", 0) == 1:
-                logger.info("Kill job")
-                try:
-                    bitter.kill_group(group_id)
-                except Exception as e:
-                    logger.info(e)
-                logger.info("Terminated")
-                result = 1
-        else:
-            logger.info("Still processing ...")
+        logger.info("Still processing ...")
         if test_was_canceled(test_id) and result != 1:
             logger.info("Test was cancelled")
             try:
@@ -717,9 +703,9 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
                 result = 1
                 break
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
-            logger.info(f"Exceeded max test duration - {max_duration} sec")
+            logger.info(f"Exceeded max test duration - {max_duration - 60} sec")
             update_test_status(status="cancelled", percentage=100,
-                               description=f"Exceeded max test duration - {max_duration} sec")
+                               description=f"Exceeded max test duration - {max_duration - 60} sec")
             try:
                 bitter.kill_group(group_id)
             except Exception as e:
