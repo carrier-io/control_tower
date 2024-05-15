@@ -9,6 +9,28 @@ from control_tower.constants import RABBIT_HOST, RABBIT_PORT, RABBIT_USER, RABBI
 from control_tower.run import logger
 
 
+def get_instances_requirements_for_suite(settings, cloud_config, queue_name):
+    cpu = max(2, int(cloud_config["cpu_cores_limit"]))
+    memory = int(cloud_config["memory_limit"]) + 1
+    instance_count = settings["concurrency"]
+
+    if settings["job_type"] in ['perfgun', 'perfmeter']:
+        if instance_count == 1:
+            cpu += 1
+            memory += 4
+        else:
+            instance_count += 1
+    if cpu > 8:
+        logger.error("Max CPU cores limit should be less then 8")
+        raise Exception
+    if memory > 16:
+        logger.error("Max memory limit should be less then 16g")
+        raise Exception
+    logger.info(f"CPU per instance - {cpu}. Memory per instance - {memory}g")
+    logger.info(f"Instances count - {instance_count}")
+    return cpu, instance_count, memory
+
+
 def get_instances_requirements(args, cloud_config, queue_name):
     instance_count = 0
     cpu = max(2, int(cloud_config["cpu_cores_limit"]))
@@ -63,7 +85,7 @@ def wait_for_instances_start(args, instance_count: int, terminate_instance_func:
                 raise Exception("Couldn't set up cloud instances")
 
 
-def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name, instance_count=None):
+def get_instance_init_script(container_name, cpu, finalizer_queue_name, memory, queue_name, instance_count=None):
     if instance_count and instance_count == 1:
         cpu_cores = 2
         memory -= 4
@@ -76,7 +98,7 @@ def get_instance_init_script(args, cpu, finalizer_queue_name, memory, queue_name
     apt install docker -y
     apt install docker.io -y
     '''
-    user_data += f"docker pull {args.container[0]}\n"
+    user_data += f"docker pull {container_name}\n"
     user_data += f"docker pull getcarrier/performance_results_processing:{CONTAINER_TAG}\n"
     user_data += f"docker run -d -v /var/run/docker.sock:/var/run/docker.sock -e RAM_QUOTA=1g -e CPU_QUOTA=1" \
                  f" -e CPU_CORES=1 -e RABBIT_HOST={environ.get('RABBIT_HOST')} -e RABBIT_USER={environ.get('RABBIT_USER')}" \
