@@ -47,6 +47,16 @@ def create_aws_instances(args, aws_config, is_suite=False, queue_name=None, sett
                     'Min': memory * 1024,
                 },
             },
+            "BlockDeviceMappings": [
+                {
+                    "DeviceName": "/dev/sda1",
+                    "Ebs": {
+                        "VolumeSize": 25,
+                        "DeleteOnTermination": True,
+                        "VolumeType": "gp2"
+                    },
+                }
+            ]
         }
     }
 
