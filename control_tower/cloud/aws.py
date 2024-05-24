@@ -21,8 +21,6 @@ def create_aws_instances(args, aws_config, is_suite=False, queue_name=None, sett
         cpu, instance_count, memory = get_instances_requirements(args, aws_config, queue_name)
     finalizer_queue_name = str(uuid4())
 
-
-
     global ec2
     ec2 = boto3.client('ec2', aws_access_key_id=aws_config.get("aws_access_key"),
                        aws_secret_access_key=aws_config["aws_secret_access_key"],
@@ -39,14 +37,6 @@ def create_aws_instances(args, aws_config, is_suite=False, queue_name=None, sett
         "LaunchTemplateData": {
             "ImageId": aws_config["image_id"] or get_default_image_id(),
             "UserData": user_data,
-            "InstanceRequirements": {
-                'VCpuCount': {
-                    'Min': cpu,
-                },
-                'MemoryMiB': {
-                    'Min': memory * 1024,
-                },
-            },
             "BlockDeviceMappings": [
                 {
                     "DeviceName": "/dev/sda1",
@@ -59,6 +49,18 @@ def create_aws_instances(args, aws_config, is_suite=False, queue_name=None, sett
             ]
         }
     }
+
+    if aws_config.get("ec2_instance_type") and aws_config.get("ec2_instance_type") != "auto":
+        launch_template_config["LaunchTemplateData"]["InstanceType"] = aws_config.get("ec2_instance_type")
+    else:
+        launch_template_config["LaunchTemplateData"]["InstanceRequirements"] = {
+            'VCpuCount': {
+                'Min': cpu,
+            },
+            'MemoryMiB': {
+                'Min': memory * 1024,
+            },
+        }
 
     if aws_config["security_groups"]:
         launch_template_config["LaunchTemplateData"]["SecurityGroups"] = aws_config[
