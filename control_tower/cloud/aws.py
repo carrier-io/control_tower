@@ -46,7 +46,12 @@ def create_aws_instances(args, aws_config, is_suite=False, queue_name=None, sett
                         "VolumeType": "gp2"
                     },
                 }
-            ]
+            ],
+            "MetadataOptions": {
+                "HttpTokens": "required",
+                "HttpPutResponseHopLimit": 5,  # Optional, specify hop limit for PUT response
+                "HttpEndpoint": "enabled"  # Optional, ensure endpoint is enabled
+            }
         }
     }
 
