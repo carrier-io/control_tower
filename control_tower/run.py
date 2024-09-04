@@ -711,7 +711,8 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
     result = 0
     test_start = time()
     try:
-        max_duration = int(os.environ.get("test_duration_limit", -1))
+        max_duration = int(os.environ.get("timeout", -1))
+        logger.info(f"max_duration - {max_duration}")
         if max_duration != -1:
             max_duration += 60 # add extra minute for test preparation
     except:
@@ -738,6 +739,8 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
                 bitter.kill_group(group_id)
             except Exception as e:
                 logger.info(e)
+            finally:
+                break
     try:
         bitter.close()
     except Exception as e:
