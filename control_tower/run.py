@@ -710,7 +710,7 @@ def send_minio_dump_flag(result_code: int) -> None:
     headers = {'Content-type': 'application/json'}
     if TOKEN:
         headers['Authorization'] = f'bearer {TOKEN}'
-    requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code}, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code}, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
 
 
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
