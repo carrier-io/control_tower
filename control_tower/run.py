@@ -498,6 +498,8 @@ def start_job(args=None):
         # )
     except (NameError, KeyError) as e:
         logger.error(e)
+        update_test_status(status="Error", percentage=100,
+                           description=f"Not enough workers to execute the test")
         raise e
 
     test_details = {}
