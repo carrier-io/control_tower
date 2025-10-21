@@ -564,6 +564,9 @@ def frontend_perf_test_start_notify(args):
 
 
 def backend_perf_test_start_notify(args):
+    print("**************************************************")
+    print("backend_perf_test_start_notify")
+    print("**************************************************")
     if GALLOPER_URL:
         users_count = 0
         duration = 0
@@ -646,6 +649,17 @@ def backend_perf_test_start_notify(args):
         if response.status_code == requests.codes.forbidden:
             logger.error(response.json().get('Forbidden'))
             raise Exception(response.json().get('Forbidden'))
+
+        # Add tag "control_tower"
+        try:
+            tags_url = f'{GALLOPER_URL}/api/v1/backend_performance/tags/{PROJECT_ID}/{res["id"]}'
+            tags_data = {'tags': [{'title': 'ci/cd',
+                         'hex': '#5933c6'
+                         }]}
+            requests.post(tags_url, json=tags_data, headers=headers,
+                                    verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        except:
+            logger.error("Failed to add report tag")
         return res
     return {}
 
