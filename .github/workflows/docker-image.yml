@@ -2,13 +2,13 @@ name: Build and push Docker images
 
 on:
   push:
-    branches: [ master ]
+    branches: [ beta-3.1 ]
   #pull_request:
   #  branches: [ master ]
   workflow_dispatch:
     inputs:
         docker_tag:
-          default: "getcarrier/control_tower:latest"
+          default: "getcarrier/control_tower:beta-3.1"
           description: "Docker image name and tag"
           required: true
 
@@ -38,4 +38,4 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           push: true
-          tags: ${{ inputs.docker_tag || 'getcarrier/control_tower:latest' }}
+          tags: ${{ inputs.docker_tag || 'getcarrier/control_tower:beta-3.1' }}
