@@ -126,7 +126,7 @@ def append_test_config(args):
         headers['Authorization'] = f'bearer {TOKEN}'
     url = f"{GALLOPER_URL}/api/v1/shared/job_type/{PROJECT_ID}/{args.test_id}"
     # get job_type
-    test_config = requests.get(url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    test_config = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     try:
         test_config = test_config.json()
     except Exception as exc:
@@ -176,7 +176,7 @@ def append_test_config(args):
             "type": "config"
         }
         # merge params with test config
-        test_config = requests.post(url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        test_config = requests.post(url, json=data, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
             test_config = test_config.json()
         except Exception as exc:
@@ -437,7 +437,7 @@ def start_job(args=None):
                     # upload artifact
                     url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
                     file_payload = {"file": (f"{BUILD_ID}.zip", src_file)}
-                    requests.post(url, params=s3_settings, headers=headers, files=file_payload, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+                    requests.post(url, params=s3_settings, headers=headers, files=file_payload, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
 
         if kubernetes_settings:
             task_kwargs = {
@@ -522,7 +522,7 @@ def update_test_status(status, percentage, description):
                             "description": description}}
     headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
-    response = requests.put(url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    response = requests.put(url, json=data, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     try:
         logger.info(response.json()["message"])
     except:
@@ -555,7 +555,7 @@ def frontend_perf_test_start_notify(args):
             headers['Authorization'] = f'bearer {TOKEN}'
 
         response = requests.post(f"{GALLOPER_URL}/api/v1/ui_performance/reports/{PROJECT_ID}", json=data,
-                                 headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+                                 headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
             logger.info(response.json()["message"])
         except:
@@ -564,9 +564,6 @@ def frontend_perf_test_start_notify(args):
 
 
 def backend_perf_test_start_notify(args):
-    print("**************************************************")
-    print("backend_perf_test_start_notify")
-    print("**************************************************")
     if GALLOPER_URL:
         users_count = 0
         duration = 0
@@ -633,7 +630,7 @@ def backend_perf_test_start_notify(args):
             headers['Authorization'] = f'bearer {TOKEN}'
         url = f'{GALLOPER_URL}/api/v1/backend_performance/reports/{PROJECT_ID}'
 
-        response = requests.post(url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        response = requests.post(url, json=data, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         res = {}
         try:
             res = response.json()
@@ -656,7 +653,7 @@ def backend_perf_test_start_notify(args):
             tags_data = {'tags': [{'title': 'ci/cd',
                          'hex': '#5933c6'
                          }]}
-            requests.post(tags_url, json=tags_data, headers=headers,
+            requests.post(tags_url, json=tags_data, headers=headers, timeout=30,
                                     verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         except:
             logger.error("Failed to add report tag")
@@ -668,7 +665,7 @@ def get_project_package():
     try:
         url = f"{GALLOPER_URL}/api/v1/projects/project/{PROJECT_ID}"
         headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
-        package = requests.get(url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()["package"]
+        package = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()["package"]
     except:
         package = "custom"
     return package
@@ -701,7 +698,7 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
             "max_deviation": max_deviation,
             "u_aggr": U_AGGR
         }
-        return requests.get(url, params=params, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()
+        return requests.get(url, params=params, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()
     return {"message": "Test is in progress", "code": 0}
 
 
@@ -710,7 +707,7 @@ def test_finished(report_id=REPORT_ID):
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
-    res = requests.get(url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()
+    res = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()
     return res["message"].lower() in {
         "finished", "failed", "success",
         'canceled', 'cancelled', 'post processing (manual)',
@@ -755,6 +752,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
                 break
         if max_duration != -1 and max_duration <= int((time() - test_start)) and result != 1:
             logger.info(f"Exceeded max test duration - {max_duration - 60} sec")
+            result = 1
             update_test_status(status="cancelled", percentage=100,
                                description=f"Exceeded max test duration - {max_duration - 60} sec")
             try:
@@ -762,7 +760,7 @@ def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05
             except Exception as e:
                 logger.info(e)
             finally:
-                break
+                return result
     try:
         bitter.close()
     except Exception as e:
@@ -778,7 +776,7 @@ def test_was_canceled(test_id):
             url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{test_id}'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
-            status = requests.get(url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()['message']
+            status = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()['message']
             return status in {'Cancelled', "Canceled", "post processing (manual)"}
         return False
     except:
@@ -884,7 +882,7 @@ def download_junit_report(s3_settings, results_bucket, file_name, retry):
     else:
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
-    junit_report = requests.get(url, params=s3_settings, headers=headers, allow_redirects=True, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    junit_report = requests.get(url, params=s3_settings, headers=headers, allow_redirects=True, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         logger.info("Waiting for report to be accessible ...")
         retry -= 1
