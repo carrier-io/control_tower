@@ -389,6 +389,7 @@ def start_job(args=None):
                 exec_params['report_id'] = REPORT_ID
             else:
                 exec_params['REPORT_ID'] = BUILD_ID.replace("build_", "")
+                exec_params['report_id'] = BUILD_ID.replace("build_", "")
 
             if TOKEN:
                 exec_params['token'] = TOKEN
@@ -510,8 +511,8 @@ def start_job(args=None):
     else:
         if args.job_type[0] == "observer":
             test_details = frontend_perf_test_start_notify(args)
-            globals()["REPORT_ID"] = str(test_details["id"]) \
-                if "id" in test_details.keys() else None
+            globals()["REPORT_ID"] = str(test_details["uid"]) \
+                if "uid" in test_details.keys() else None
 
     return arb, group_id, test_details
 
