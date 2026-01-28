@@ -806,7 +806,7 @@ def _start_and_track(args=None):
                 csv_name = list(_.keys())[0].replace("tests/", "")
                 delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
     if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
-        if args.job_type[0] in {'perfgun', 'perfmeter'}:
+        if args.job_type[0] in {'perfgun', 'perfmeter', 'observer'}:
             logger.info("Processing junit report ...")
             process_junit_report(args, s3_settings)
 
@@ -849,21 +849,32 @@ def process_security_quality_gate(args, s3_settings):
 
 
 def process_junit_report(args, s3_settings):
-    file_name = "junit_report_{}.xml".format(BUILD_ID)
-    results_bucket = str(args.job_name).replace("_", "").lower()
+    is_ui_test = args.job_type[0] == "observer"
+    if is_ui_test:
+        file_name = "{}_junit_report.xml".format(REPORT_ID)
+        testsuite_name = "Thresholds"
+        report_label = "UI performance testing jUnit report | Carrier"
+    else:
+        file_name = "junit_report_{}.xml".format(BUILD_ID)
+        testsuite_name = "Quality gate "
+        report_label = "Performance testing jUnit report | Carrier"
+    results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
     junit_report = download_junit_report(s3_settings, results_bucket, file_name, retry=12)
     if junit_report:
         with open("{}/{}".format(args.report_path, file_name), "w") as f:
             f.write(junit_report.text)
-        testsuite = et.fromstring(junit_report.text).find("./testsuite[@name='Quality gate ']")
+        root = et.fromstring(junit_report.text)
+        testsuite = root.find(f"./testsuite[@name='{testsuite_name}']")
+        if not testsuite and is_ui_test:
+            testsuite = root.find("./testsuite")
         if testsuite:
             failed = testsuite.get('failures')
             total = testsuite.get('tests')
             errors = testsuite.get('errors')
             skipped = testsuite.get('skipped')
-            failures = [failure.get('message') for failure in testsuite.findall("./testcase/failure")]
+            failures = [failure.get('message') for failure in testsuite.findall(".//failure")]
             logger.info("**********************************************")
-            logger.info("* Performance testing jUnit report | Carrier *")
+            logger.info(f"* {report_label} *")
             logger.info("**********************************************")
             logger.info(f"Tests run: {total}, Failures: {failed}, Errors: {errors}, Skipped: {skipped}")
             quality_gate_rate = int(args.integrations["processing"]["quality_gate"].get(
