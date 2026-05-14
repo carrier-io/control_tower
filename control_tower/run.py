@@ -705,7 +705,6 @@ def backend_perf_test_start_notify(args):
         # Add tags: use custom tags if provided, otherwise default to "ci/cd"
         try:
             tags_url = f'{GALLOPER_URL}/api/v1/backend_performance/tags/{PROJECT_ID}/{res["id"]}'
-<<<<<<< HEAD
             tags_data = {'tags': [{'title': 'ci/cd',
                          'hex': '#5933c6'
                          }]}
@@ -713,7 +712,6 @@ def backend_perf_test_start_notify(args):
                                     verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         except:
             logger.error("Failed to add report tag")
-=======
             # Collect custom tags from --tag CLI arguments
             custom_tags = list(getattr(args, 'tag', []) or [])
             # Also support custom_tag env var (comma-separated)
@@ -737,7 +735,6 @@ def backend_perf_test_start_notify(args):
             print(f"[TAG DEBUG] EXCEPTION: {e}")
             logger.error(f"Failed to add report tags: {e}")
             logger.error(format_exc())
->>>>>>> 87912bd (custom tags support for integrations)
         return res
     return {}
 
