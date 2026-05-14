@@ -114,6 +114,9 @@ def arg_parse():
     parser.add_argument('-md', '--max_deviation', default=0, type=float)
     parser.add_argument('-tid', '--test_id', default="", type=str)
     parser.add_argument('-int', '--integrations', default={}, type=str)
+    parser.add_argument('--tag', action="append", default=[], type=str,
+                        help="Custom tag to attach to the report, e.g. --tag Release_v2.1. "
+                             "Can be specified multiple times. The default ci/cd tag is always added.")
     args, _ = parser.parse_known_args()
     if args.test_id and GALLOPER_URL:
         args = append_test_config(args)
@@ -140,6 +143,9 @@ def append_test_config(args):
     container = []
     job_type = []
     tests_count = len(args.concurrency) if args.concurrency else 1
+    # Reserved parameters that cannot be sent to API but will be preserved from cmd line
+    reserved_params = ['test_type', 'env_type', 'test_name']
+    reserved_overrides = {}  # Store user's override values for reserved params
     # prepare params
     for i in range(tests_count):
         if lg_type == 'jmeter':
@@ -149,7 +155,14 @@ def append_test_config(args):
                 for each in exec_params:
                     if "=" in each:
                         _ = each.split("=")
-                        params[_[0]] = str(_[1]).strip()
+                        param_name = _[0]
+                        param_value = str(_[1]).strip()
+                        # Store reserved parameters for later re-injection
+                        if param_name in reserved_params:
+                            reserved_overrides[param_name] = param_value
+                            logger.info(f"Preserving override: {param_name}={param_value}")
+                        else:
+                            params[param_name] = param_value
         elif lg_type == 'gatling':
             url = f"{GALLOPER_URL}/api/v1/backend_performance/test/{PROJECT_ID}/{args.test_id}"
             if args.execution_params and "GATLING_TEST_PARAMS" in args.execution_params[i]:
@@ -157,7 +170,14 @@ def append_test_config(args):
                 for each in exec_params:
                     if "=" in each:
                         _ = each.split("=")
-                        params[_[0]] = str(_[1]).strip()
+                        param_name = _[0]
+                        param_value = str(_[1]).strip()
+                        # Store reserved parameters for later re-injection
+                        if param_name in reserved_params:
+                            reserved_overrides[param_name] = param_value
+                            logger.info(f"Preserving override: {param_name}={param_value}")
+                        else:
+                            params[param_name] = param_value
         elif lg_type == 'dast':
             url = f"{GALLOPER_URL}/api/v1/security/test/{PROJECT_ID}/{args.test_id}"
         elif lg_type == 'sast':
@@ -182,15 +202,46 @@ def append_test_config(args):
         except Exception as exc:
             logger.info(test_config.text)
             raise exc
+        # Handle case where API returns a list instead of a single config
+        if isinstance(test_config, list):
+            if len(test_config) > 0:
+                test_config = test_config[0]
+            else:
+                raise RuntimeError(f"API returned empty list for test_id={args.test_id}")
+        # Debug: log test_config structure
+        logger.info(f"test_config keys: {test_config.keys() if isinstance(test_config, dict) else 'not a dict'}")
+        # Check if API returned an error response (validation error)
+        if isinstance(test_config, dict) and 'loc' in test_config and 'msg' in test_config and 'type' in test_config:
+            error_msg = f"API validation error: {test_config.get('msg', 'Unknown error')}"
+            logger.error(f"Backend API rejected the request: {test_config}")
+            raise RuntimeError(error_msg)
         # set args and env vars
         try:
             execution_params.append(loads(test_config["execution_params"]))
             concurrency.append(test_config["concurrency"])
             container.append(test_config["container"])
             job_type.append(test_config["job_type"])
+            # Re-inject reserved parameter overrides into the cmd string
+            if reserved_overrides and execution_params and "cmd" in execution_params[-1]:
+                cmd = execution_params[-1]["cmd"]
+                logger.info(f"Original cmd from API: {cmd}")
+                # Replace each reserved parameter with user's override value
+                for param_name, param_value in reserved_overrides.items():
+                    # Pattern to match -Jparam=oldvalue (with word boundary at end)
+                    pattern = f"-J{param_name}=\\S+"
+                    replacement = f"-J{param_name}={param_value}"
+                    cmd = re.sub(pattern, replacement, cmd)
+                    logger.info(f"Applied override: -J{param_name}={param_value}")
+                execution_params[-1]["cmd"] = cmd
+                logger.info(f"Modified cmd with overrides: {cmd}")
         except Exception as e:
+            logger.error(f"Error extracting test config fields: {e}")
             print(e)
-        setattr(args, "job_name", test_config["job_name"])
+        # Use get() with fallback for job_name
+        if "job_name" in test_config:
+            setattr(args, "job_name", test_config["job_name"])
+        elif not getattr(args, "job_name", None):
+            logger.warning(f"job_name not found in test_config, using default: {args.job_name}")
         for each in ["job_name", "email_recipients"]:
             if not getattr(args, each) and each in test_config.keys():
                 setattr(args, each, test_config[each])
@@ -203,7 +254,7 @@ def append_test_config(args):
                 setattr(args, each, str2bool(test_config[each]))
         if "integrations" in test_config.keys():
             setattr(args, "integrations", test_config["integrations"])
-        env_vars = test_config["cc_env_vars"]
+        env_vars = test_config.get("cc_env_vars", {})
         for key, value in env_vars.items():
             environ[key] = value
 
@@ -213,6 +264,9 @@ def append_test_config(args):
     setattr(args, "container", container)
     setattr(args, "job_type", job_type)
     s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
+    # Ensure job_type has at least one element before accessing
+    if not args.job_type:
+        raise RuntimeError("Failed to extract job configuration from API. Please check your test parameters and API response.")
     environ["report_type"] = JOB_TYPE_MAPPING.get(args.job_type[0], "other")
     if "git" in test_config.keys():
         process_git_repo(test_config, args, s3_settings)
@@ -648,9 +702,10 @@ def backend_perf_test_start_notify(args):
             logger.error(response.json().get('Forbidden'))
             raise Exception(response.json().get('Forbidden'))
 
-        # Add tag "control_tower"
+        # Add tags: use custom tags if provided, otherwise default to "ci/cd"
         try:
             tags_url = f'{GALLOPER_URL}/api/v1/backend_performance/tags/{PROJECT_ID}/{res["id"]}'
+<<<<<<< HEAD
             tags_data = {'tags': [{'title': 'ci/cd',
                          'hex': '#5933c6'
                          }]}
@@ -658,6 +713,31 @@ def backend_perf_test_start_notify(args):
                                     verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         except:
             logger.error("Failed to add report tag")
+=======
+            # Collect custom tags from --tag CLI arguments
+            custom_tags = list(getattr(args, 'tag', []) or [])
+            # Also support custom_tag env var (comma-separated)
+            env_tags = os.environ.get('custom_tag', '').strip()
+            print(f"[TAG DEBUG] --tag args: {getattr(args, 'tag', [])}")
+            print(f"[TAG DEBUG] custom_tag env var: '{env_tags}'")
+            if env_tags:
+                custom_tags.extend([t.strip() for t in env_tags.split(',') if t.strip()])
+            # If custom tags provided, use them; otherwise fall back to default "ci/cd"
+            if custom_tags:
+                tags_list = [{'title': t, 'hex': '#35b3e1'} for t in custom_tags]
+            else:
+                tags_list = [{'title': 'ci/cd', 'hex': '#5933c6'}]
+            print(f"[TAG DEBUG] Final tags_list: {tags_list}")
+            print(f"[TAG DEBUG] Posting to: {tags_url}")
+            tags_data = {'tags': tags_list}
+            tag_resp = requests.post(tags_url, json=tags_data, headers=headers,
+                                     verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+            print(f"[TAG DEBUG] Response [{tag_resp.status_code}]: {tag_resp.text}")
+        except Exception as e:
+            print(f"[TAG DEBUG] EXCEPTION: {e}")
+            logger.error(f"Failed to add report tags: {e}")
+            logger.error(format_exc())
+>>>>>>> 87912bd (custom tags support for integrations)
         return res
     return {}
 
