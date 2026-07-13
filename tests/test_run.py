@@ -43,8 +43,8 @@ test_response = {"container": "getcarrier/perfmeter:latest-5.3",
                                  "RABBIT_VHOST": "test",
                                  "GALLOPER_WEB_HOOK": "https://example/task/1"},
                  "bucket": "tests",
-                 "job_name": "test",
-                 "artifact": "test.zip",
+                 "job_name": "DemoTest",
+                 "artifact": {"file_name": "test.zip", "bucket": "tests"},
                  "job_type": "perfmeter",
                  "concurrency": 5,
                  "channel": "default",
@@ -101,7 +101,8 @@ def test_str2json():
 
 @mock.patch("arbiter.Arbiter")
 @mock.patch("arbiter.Task")
-def test_start_job(arbiterMock, taskMock):
+@mock.patch("control_tower.run.log_loki")
+def test_start_job(arbiterMock, taskMock, mock_loki):
     args = BulkConfig(
         bulk_container=[],
         bulk_params=[],
@@ -111,14 +112,18 @@ def test_start_job(arbiterMock, taskMock):
         test_id=1
     )
     with requests_mock.Mocker() as req_mock:
-        req_mock.get(f"{environ['galloper_url']}/api/v1/tests/{environ['project_id']}/backend/{args.test_id}",
-                     json=test_response)
-        req_mock.post(f"{environ['galloper_url']}/api/v1/tests/{environ['project_id']}/backend/{args.test_id}",
-                     json=test_response)
-        req_mock.get(f"{environ['galloper_url']}/api/v1/tests/{environ['project_id']}/{args.test_id}",
+        req_mock.get(f"{environ['galloper_url']}/api/v1/shared/job_type/{environ['project_id']}/{args.test_id}",
                      json={"job_type": "perfmeter"})
-        req_mock.get(f"{environ['galloper_url']}/api/v1/project/{environ['project_id']}", text="custom")
-        req_mock.post(f"{environ['galloper_url']}/api/v1/reports/{environ['project_id']}", json={"message": "patched"})
+        req_mock.post(f"{environ['galloper_url']}/api/v1/backend_performance/test/{environ['project_id']}/{args.test_id}",
+                     json=test_response)
+        req_mock.post(f"{environ['galloper_url']}/api/v1/backend_performance/reports/{environ['project_id']}",
+                     json={"message": "patched", "id": 42})
+        req_mock.put(f"{environ['galloper_url']}/api/v1/backend_performance/report_status/{environ['project_id']}/42",
+                     json={"message": "ok"})
+        req_mock.get(f"{environ['galloper_url']}/api/v1/backend_performance/report_status/{environ['project_id']}/42",
+                     json={"message": "Finished"})
+        req_mock.get(f"{environ['galloper_url']}/api/v1/backend_performance/report_status/{environ['project_id']}/{args.test_id}",
+                     json={"message": "Finished"})
         args = run.append_test_config(args)
         assert all(key in args.execution_params[0] for key in ['cmd', 'cpu_cores_limit', 'memory_limit',
                                                                'influxdb_host', 'influxdb_user', 'influxdb_password',
@@ -127,8 +132,8 @@ def test_start_job(arbiterMock, taskMock):
         assert args.job_name == job_name
         arb, group_id, test_details = run.start_job(args)
         assert arb.squad.called
-        assert len(arb.squad.call_args[0][0]) == int(environ["lg_count"])
-        assert 'callback' in arb.squad.call_args[1]
+        # lg_count workers + 1 post_process task = lg_count + 1
+        assert len(arb.squad.call_args[0][0]) == int(environ["lg_count"]) + 1
         result = run.track_job(bitter(), str(uuid4()), args.test_id)
         assert result == 0
 

@@ -249,13 +249,14 @@ def test_process_gatling_report_writes_zip_to_report_path(tmp_path):
         download_report=True,
     )
 
-    with req_mock_module.Mocker() as m:
-        list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/{bucket}"
-        m.get(list_url, json={"total": 1, "files": [zip_name]})
-        dl_url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/{bucket}/{zip_name}"
-        m.get(dl_url, content=zip_bytes, status_code=200)
+    with mock.patch.object(run, 'BUILD_ID', build_id):
+        with req_mock_module.Mocker() as m:
+            list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/{bucket}"
+            m.get(list_url, json={"total": 1, "files": [zip_name]})
+            dl_url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/{bucket}/{zip_name}"
+            m.get(dl_url, content=zip_bytes, status_code=200)
 
-        run.process_gatling_report(args, s3_settings={})
+            run.process_gatling_report(args, s3_settings={})
 
     written = list(tmp_path.iterdir())
     assert len(written) == 1, f"Expected 1 file written, got {len(written)}: {written}"
@@ -273,12 +274,13 @@ def test_process_gatling_report_does_not_raise_when_zip_not_found(tmp_path):
         download_report=True,
     )
 
-    with req_mock_module.Mocker() as m:
-        list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/emptytest"
-        m.get(list_url, json={"total": 0, "files": []})
+    with mock.patch('control_tower.run.sleep'):
+        with req_mock_module.Mocker() as m:
+            list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/emptytest"
+            m.get(list_url, json={"total": 0, "files": []})
 
-        # Must not raise — non-fatal by design
-        run.process_gatling_report(args, s3_settings={})
+            # Must not raise — non-fatal by design
+            run.process_gatling_report(args, s3_settings={})
 
     # No file written is acceptable
     assert list(tmp_path.iterdir()) == []
