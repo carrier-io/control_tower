@@ -948,8 +948,11 @@ def download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix
                 if fname.startswith(search_prefix) and fname.endswith(".zip"):
                     zip_name = fname
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("download_gatling_report: failed to parse listing response: %s", exc)
+    if listing.status_code != 200:
+        logger.warning("download_gatling_report: listing returned HTTP %s for bucket '%s'",
+                       listing.status_code, results_bucket)
     if not zip_name:
         logger.info("Waiting for Gatling report to be accessible ...")
         retry -= 1
