@@ -120,6 +120,36 @@ def test_download_gatling_report_returns_response_when_zip_found():
     assert result.content == zip_bytes
 
 
+def test_download_gatling_report_handles_rows_response_format():
+    """download_gatling_report must work when the listing API returns 'rows' dicts (Carrier 2026 API)."""
+    bucket = "contentstackmixed"
+    build_id = "build_f8f3bd85-bde2-4205-ae67-8235f715b821"
+    prefix = f"test_results_{build_id}_"
+    zip_name = f"reports_{prefix}Lg_529_2039.zip"
+    zip_bytes = b"PK\x03\x04rows_format_zip"
+
+    with req_mock_module.Mocker() as m:
+        list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/{bucket}"
+        # The 2026 Carrier API returns {"rows": [{"name": "...", "size": "...", "modified": "..."}], "total": N}
+        m.get(list_url, json={"total": 3, "rows": [
+            {"name": f"build_{build_id}.log", "size": "1K", "modified": "2026-07-13T10:00:00Z"},
+            {"name": f"build_{build_id}.csv.gz", "size": "10K", "modified": "2026-07-13T10:00:00Z"},
+            {"name": zip_name, "size": "1.6M", "modified": "2026-07-13T10:15:00Z"},
+        ]})
+        dl_url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/{bucket}/{zip_name}"
+        m.get(dl_url, content=zip_bytes, status_code=200)
+
+        result = run.download_gatling_report(
+            s3_settings={},
+            results_bucket=bucket,
+            distributed_mode_prefix=prefix,
+            retry=1,
+        )
+
+    assert result is not None, "Expected a Response object with rows format, got None"
+    assert result.content == zip_bytes
+
+
 def test_download_gatling_report_returns_none_when_no_zip_found():
     """download_gatling_report must return None (non-fatal) when no matching ZIP exists."""
     bucket = "emptyresults"
@@ -502,4 +532,29 @@ def test_append_test_config_propagates_download_report():
     assert hasattr(args, "download_report"), "download_report not set on args by append_test_config"
     assert args.download_report is True, (
         f"Expected download_report=True from test config, got {args.download_report}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. FIX 1: DOWNLOAD_REPORT env-var is wired as argparse default
+# ---------------------------------------------------------------------------
+
+def test_download_report_env_var_default_wired_to_argparse():
+    """arg_parse() must pick up DOWNLOAD_REPORT=True from env without any CLI flag.
+
+    Patches control_tower.run.DOWNLOAD_REPORT to True and controls sys.argv so
+    no explicit -dr flag is passed. If argparse uses DOWNLOAD_REPORT as the default,
+    args.download_report must be True even with an empty command line.
+    """
+    import sys
+    orig_argv = sys.argv[:]
+    try:
+        sys.argv = ["run"]
+        with mock.patch.object(run, 'DOWNLOAD_REPORT', True):
+            args = run.arg_parse()
+    finally:
+        sys.argv = orig_argv
+    assert args.download_report is True, (
+        "arg_parse() must return download_report=True when DOWNLOAD_REPORT constant is True "
+        "and no -dr CLI flag is passed (env-var default not wired into argparse)"
     )

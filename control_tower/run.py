@@ -109,10 +109,10 @@ def arg_parse():
     parser.add_argument('-el', '--email_recipients', default="", type=str)
     parser.add_argument('-rp', '--report_portal', default=False, type=str2bool)
     parser.add_argument('-ado', '--azure_devops', default=False, type=str2bool)
-    parser.add_argument('-dr', '--download_report', default=False, type=str2bool,
+    parser.add_argument('-dr', '--download_report', default=DOWNLOAD_REPORT, type=str2bool,
                         help='Download the Gatling ZIP report from Carrier storage after '
                              'the test run. Saved to --report_path. '
-                             'Implies --save_reports=True. Default: False.')
+                             'Implies --save_reports=True. Default: False (env: DOWNLOAD_REPORT).')
     parser.add_argument('-p', '--report_path', default="/tmp/reports", type=str)
     parser.add_argument('-d', '--deviation', default=0, type=float)
     parser.add_argument('-md', '--max_deviation', default=0, type=float)
@@ -813,14 +813,14 @@ def _start_and_track(args=None):
             for _ in each:
                 csv_name = list(_.keys())[0].replace("tests/", "")
                 delete_csv(GALLOPER_URL, TOKEN, PROJECT_ID, csv_name)
-    if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
-        if args.job_type[0] in {'perfgun', 'perfmeter', 'observer'}:
-            logger.info("Processing junit report ...")
-            process_junit_report(args, s3_settings)
     if getattr(args, 'download_report', False):
         if args.job_type[0] in {'perfgun', 'perfmeter'}:
             logger.info("Downloading Gatling report ...")
             process_gatling_report(args, s3_settings)
+    if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
+        if args.job_type[0] in {'perfgun', 'perfmeter', 'observer'}:
+            logger.info("Processing junit report ...")
+            process_junit_report(args, s3_settings)
 
 
 def start_and_track(args=None):
@@ -939,10 +939,14 @@ def download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix
     zip_name = None
     if listing.status_code == 200:
         try:
-            files = listing.json().get("files", [])
-            for f in files:
-                if f.startswith(search_prefix) and f.endswith(".zip"):
-                    zip_name = f
+            payload = listing.json()
+            # The artifacts API returns {"rows": [{"name": "...", ...}, ...], "total": N}
+            # Older responses may use {"files": ["...", ...]} — handle both.
+            raw_list = payload.get("rows") or payload.get("files", [])
+            for item in raw_list:
+                fname = item["name"] if isinstance(item, dict) else item
+                if fname.startswith(search_prefix) and fname.endswith(".zip"):
+                    zip_name = fname
                     break
         except Exception:
             pass
@@ -977,12 +981,20 @@ def process_gatling_report(args, s3_settings):
 
     The results bucket name follows the same derivation used everywhere in run.py:
         str(args.job_name).replace('_', '').replace(' ', '').lower()
+
+    The Gatling ZIP filename is: reports_test_results_{BUILD_ID}_Lg_{R}_{R}.zip
+    where BUILD_ID is the build identifier shared with the perfgun worker.
     """
+    os.makedirs(args.report_path, exist_ok=True)
     results_bucket = str(args.job_name).replace("_", "").replace(" ", "").lower()
+    # Perfgun names the ZIP as "reports_test_results_{BUILD_ID}_Lg_{R}_{R}.zip".
+    # BUILD_ID is the reliable prefix — DISTRIBUTED_MODE_PREFIX is computed at
+    # module-load time before cc_env_vars are applied and uses a random uuid4.
+    build_id_prefix = f"test_results_{BUILD_ID}_"
     response = download_gatling_report(
         s3_settings=s3_settings,
         results_bucket=results_bucket,
-        distributed_mode_prefix=DISTRIBUTED_MODE_PREFIX,
+        distributed_mode_prefix=build_id_prefix,
         retry=12,
     )
     if not response:
@@ -994,8 +1006,7 @@ def process_gatling_report(args, s3_settings):
         return
     # Derive filename from Content-Disposition or from the download URL
     content_disposition = response.headers.get("Content-Disposition", "")
-    import re as _re
-    cd_match = _re.search(r'filename=["\']?([^"\';]+)', content_disposition)
+    cd_match = re.search(r'filename=["\']?([^"\';]+)', content_disposition)
     if cd_match:
         zip_filename = cd_match.group(1).strip()
     else:
