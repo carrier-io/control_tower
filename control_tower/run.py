@@ -792,7 +792,10 @@ def _start_and_track(args=None):
     if not args:
         args = arg_parse()
     # Implicit save_reports override: Gatling must upload the ZIP before we can download it
-    if getattr(args, 'download_report', False) and not args.save_reports:
+    # Observer (Lighthouse) does not need save_reports — it uses a different upload mechanism
+    if getattr(args, 'download_report', False) \
+            and getattr(args, 'job_type', [None])[0] in {'perfgun', 'perfmeter'} \
+            and not args.save_reports:
         logger.info("download_report=True implies save_reports=True; enabling automatically.")
         args.save_reports = True
     s3_settings = args.integrations.get("system", {}).get("s3_integration", {})
@@ -817,6 +820,9 @@ def _start_and_track(args=None):
         if args.job_type[0] in {'perfgun', 'perfmeter'}:
             logger.info("Downloading Gatling report ...")
             process_gatling_report(args, s3_settings)
+        elif args.job_type[0] == 'observer':
+            logger.info("Downloading Lighthouse HTML report ...")
+            process_lighthouse_report(args, s3_settings)
     if args.integrations and "quality_gate" in args.integrations.get("processing", {}):
         if args.job_type[0] in {'perfgun', 'perfmeter', 'observer'}:
             logger.info("Processing junit report ...")
@@ -1019,6 +1025,87 @@ def process_gatling_report(args, s3_settings):
     with open(output_path, 'wb') as fout:
         fout.write(response.content)
     logger.info("Gatling report saved to: %s", output_path)
+
+
+def download_lighthouse_report(s3_settings, retry=12):
+    """Download the Lighthouse HTML report from the fixed 'reports' bucket.
+
+    The filename pattern is {DDMonYYYY}_{HH:MM:SS}_user-flow.report.html.
+    The timestamp is non-deterministic — we list the bucket and take the LAST
+    file ending with '_user-flow.report.html' (most recently uploaded).
+
+    Concurrency note: In a high-frequency environment where two observer tests
+    finish close together, the "last file wins" strategy may return a different
+    test's report. This is an accepted trade-off consistent with the Gatling
+    prefix strategy.
+
+    Returns:
+        (filename, response) on success.
+        (None, None) when no matching file found after all retries.
+    """
+    if not PROJECT_ID:
+        logger.warning("download_lighthouse_report: PROJECT_ID not set, skipping.")
+        return None, None
+    list_url = f'{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/reports'
+    headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
+    ssl_verify = os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]
+    listing = requests.get(
+        list_url, params=s3_settings, headers=headers, timeout=30, verify=ssl_verify
+    )
+    html_name = None
+    if listing.status_code == 200:
+        try:
+            payload = listing.json()
+            raw_list = payload.get("rows") or payload.get("files", [])
+            for item in raw_list:
+                fname = item["name"] if isinstance(item, dict) else item
+                if fname.endswith("_user-flow.report.html"):
+                    html_name = fname  # take the last match
+        except Exception as exc:
+            logger.warning("download_lighthouse_report: failed to parse listing response: %s", exc)
+    if listing.status_code != 200:
+        logger.warning("download_lighthouse_report: listing returned HTTP %s for bucket 'reports'",
+                       listing.status_code)
+    if not html_name:
+        logger.info("Waiting for Lighthouse HTML report to be accessible ...")
+        retry -= 1
+        if retry == 0:
+            logger.warning(
+                "download_lighthouse_report: HTML report not found in bucket 'reports' "
+                "after all retries."
+            )
+            return None, None
+        sleep(10)
+        return download_lighthouse_report(s3_settings, retry)
+    dl_url = f'{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/reports/{html_name}'
+    response = requests.get(
+        dl_url, params=s3_settings, headers=headers,
+        allow_redirects=True, timeout=60, verify=ssl_verify
+    )
+    if response.status_code != 200:
+        logger.warning(
+            "download_lighthouse_report: download of '%s' returned HTTP %s.",
+            html_name, response.status_code,
+        )
+        return None, None
+    return html_name, response
+
+
+def process_lighthouse_report(args, s3_settings):
+    """Locate, download and save the Lighthouse HTML report to args.report_path."""
+    os.makedirs(args.report_path, exist_ok=True)
+    filename, response = download_lighthouse_report(s3_settings, retry=12)
+    if filename is None:
+        logger.warning(
+            "process_lighthouse_report: Lighthouse HTML not available for job '%s'. "
+            "The report will not be saved.",
+            args.job_name,
+        )
+        return
+    output_path = os.path.join(args.report_path, filename)
+    with open(output_path, 'wb') as fout:
+        fout.write(response.content)
+    logger.info("Lighthouse report saved to: %s", output_path)
 
 
 # if __name__ == "__main__":

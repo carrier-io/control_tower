@@ -560,3 +560,318 @@ def test_download_report_env_var_default_wired_to_argparse():
         "arg_parse() must return download_report=True when DOWNLOAD_REPORT constant is True "
         "and no -dr CLI flag is passed (env-var default not wired into argparse)"
     )
+
+
+# ---------------------------------------------------------------------------
+# 9. download_lighthouse_report: finds HTML by suffix in reports bucket listing
+# ---------------------------------------------------------------------------
+
+def test_download_lighthouse_report_returns_response_when_html_found():
+    """download_lighthouse_report must return (filename, response) when a matching HTML file exists."""
+    html_name = "some_run_id_user-flow.report.html"
+    html_bytes = b"<html>lighthouse report</html>"
+
+    with req_mock_module.Mocker() as m:
+        list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/reports"
+        m.get(list_url, json={"total": 2, "files": [
+            "some_run_id.json",
+            html_name,
+        ]})
+        dl_url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/reports/{html_name}"
+        m.get(dl_url, content=html_bytes, status_code=200)
+
+        filename, response = run.download_lighthouse_report(s3_settings={}, retry=1)
+
+    assert filename == html_name, f"Expected filename '{html_name}', got '{filename}'"
+    assert response is not None, "Expected a Response object, got None"
+    assert response.status_code == 200
+    assert response.content == html_bytes
+
+
+def test_download_lighthouse_report_takes_last_match_when_multiple_html_files():
+    """download_lighthouse_report must return the LAST matching HTML file when multiple exist."""
+    html1 = "run_001_user-flow.report.html"
+    html2 = "run_002_user-flow.report.html"
+    html3 = "run_003_user-flow.report.html"
+    expected_content = b"<html>latest lighthouse report</html>"
+
+    with req_mock_module.Mocker() as m:
+        list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/reports"
+        m.get(list_url, json={"total": 3, "files": [html1, html2, html3]})
+        # Only the last one should be downloaded
+        dl_url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/reports/{html3}"
+        m.get(dl_url, content=expected_content, status_code=200)
+
+        with mock.patch("control_tower.run.sleep"):
+            filename, response = run.download_lighthouse_report(s3_settings={}, retry=1)
+
+    assert filename == html3, (
+        f"Expected last match '{html3}', got '{filename}'"
+    )
+    assert response.content == expected_content
+
+
+def test_download_lighthouse_report_returns_none_when_no_html_found():
+    """download_lighthouse_report must return (None, None) when no _user-flow.report.html exists."""
+    with req_mock_module.Mocker() as m:
+        list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/reports"
+        m.get(list_url, json={"total": 1, "files": ["some_run.json"]})
+
+        with mock.patch("control_tower.run.sleep"):
+            filename, response = run.download_lighthouse_report(s3_settings={}, retry=1)
+
+    assert filename is None, f"Expected None filename when no HTML found, got '{filename}'"
+    assert response is None, f"Expected None response when no HTML found, got {response}"
+
+
+def test_download_lighthouse_report_retries_on_empty_listing():
+    """download_lighthouse_report must retry and succeed when HTML appears on second listing call."""
+    html_name = "run_late_user-flow.report.html"
+    html_bytes = b"<html>late lighthouse report</html>"
+    call_count = {"n": 0}
+
+    def list_handler(request, context):
+        call_count["n"] += 1
+        if call_count["n"] < 2:
+            return {"total": 0, "files": []}
+        return {"total": 1, "files": [html_name]}
+
+    with req_mock_module.Mocker() as m:
+        list_url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/reports"
+        m.get(list_url, json=list_handler)
+        dl_url = f"{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/reports/{html_name}"
+        m.get(dl_url, content=html_bytes, status_code=200)
+
+        with mock.patch("control_tower.run.sleep"):
+            filename, response = run.download_lighthouse_report(s3_settings={}, retry=3)
+
+    assert filename == html_name
+    assert response is not None
+    assert response.content == html_bytes
+    assert call_count["n"] == 2, (
+        f"Expected 2 listing calls (1 retry), got {call_count['n']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 10. process_lighthouse_report: writes file to report_path
+# ---------------------------------------------------------------------------
+
+def test_process_lighthouse_report_writes_html_to_report_path(tmp_path):
+    """process_lighthouse_report must write the downloaded HTML to args.report_path / filename."""
+    import types
+
+    html_name = "observer_run_user-flow.report.html"
+    html_bytes = b"<html>lighthouse</html>"
+
+    args = types.SimpleNamespace(
+        job_name="LighthouseTest",
+        report_path=str(tmp_path),
+        download_report=True,
+    )
+
+    fake_response = mock.Mock()
+    fake_response.content = html_bytes
+
+    with mock.patch.object(run, "download_lighthouse_report", return_value=(html_name, fake_response)):
+        run.process_lighthouse_report(args, s3_settings={})
+
+    written = list(tmp_path.iterdir())
+    assert len(written) == 1, f"Expected 1 file written, got {len(written)}: {written}"
+    assert written[0].name == html_name
+    assert written[0].read_bytes() == html_bytes
+
+
+def test_process_lighthouse_report_does_not_raise_when_not_found(tmp_path):
+    """process_lighthouse_report must not raise when no HTML report is available (non-fatal)."""
+    import types
+
+    args = types.SimpleNamespace(
+        job_name="EmptyObserverTest",
+        report_path=str(tmp_path),
+        download_report=True,
+    )
+
+    with mock.patch.object(run, "download_lighthouse_report", return_value=(None, None)):
+        # Must not raise — non-fatal by design
+        run.process_lighthouse_report(args, s3_settings={})
+
+    assert list(tmp_path.iterdir()) == [], "No file must be written when report not found"
+
+
+# ---------------------------------------------------------------------------
+# 11. _start_and_track calls process_lighthouse_report for observer
+# ---------------------------------------------------------------------------
+
+def test_start_and_track_calls_process_lighthouse_report_for_observer(tmp_path):
+    """_start_and_track must call process_lighthouse_report when download_report=True and job_type=observer."""
+    import types
+
+    args = types.SimpleNamespace(
+        download_report=True,
+        save_reports=False,
+        job_type=["observer"],
+        job_name="LighthouseObserverTest",
+        report_path=str(tmp_path),
+        integrations={},
+        artifact="",
+        concurrency=[1],
+        container=["getcarrier/observer:latest"],
+        channel=["default"],
+        execution_params=[{}],
+        deviation=0,
+        max_deviation=0,
+        test_id="",
+    )
+
+    with mock.patch.object(run, "start_job") as mock_start, \
+         mock.patch.object(run, "track_job", return_value=0), \
+         mock.patch.object(run, "process_lighthouse_report") as mock_lh, \
+         mock.patch.object(run, "process_gatling_report") as mock_gat, \
+         mock.patch.object(run, "send_minio_dump_flag"), \
+         mock.patch.object(run, "test_finished", return_value=True):
+
+        mock_start.return_value = (mock.Mock(), "group_id", {"id": "123"})
+        try:
+            run._start_and_track(args)
+        except Exception:
+            pass
+
+    assert mock_lh.called, (
+        "process_lighthouse_report must be called when download_report=True and job_type=observer"
+    )
+    assert not mock_gat.called, (
+        "process_gatling_report must NOT be called for observer job type"
+    )
+
+
+def test_start_and_track_does_not_call_process_lighthouse_for_perfgun(tmp_path):
+    """_start_and_track must call process_gatling_report and NOT process_lighthouse_report for perfgun."""
+    import types
+
+    args = types.SimpleNamespace(
+        download_report=True,
+        save_reports=False,
+        job_type=["perfgun"],
+        job_name="GatlingTest",
+        report_path=str(tmp_path),
+        integrations={},
+        artifact="",
+        concurrency=[1],
+        container=["getcarrier/perfgun:latest"],
+        channel=["default"],
+        execution_params=[{}],
+        deviation=0,
+        max_deviation=0,
+        test_id="",
+    )
+
+    with mock.patch.object(run, "start_job") as mock_start, \
+         mock.patch.object(run, "track_job", return_value=0), \
+         mock.patch.object(run, "process_lighthouse_report") as mock_lh, \
+         mock.patch.object(run, "process_gatling_report") as mock_gat, \
+         mock.patch.object(run, "send_minio_dump_flag"), \
+         mock.patch.object(run, "test_finished", return_value=True):
+
+        mock_start.return_value = (mock.Mock(), "group_id", {"id": "123"})
+        try:
+            run._start_and_track(args)
+        except Exception:
+            pass
+
+    assert mock_gat.called, (
+        "process_gatling_report must be called when download_report=True and job_type=perfgun"
+    )
+    assert not mock_lh.called, (
+        "process_lighthouse_report must NOT be called for perfgun job type"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 12. save_reports override is gated to perfgun/perfmeter (not observer)
+# ---------------------------------------------------------------------------
+
+def test_save_reports_NOT_overridden_for_observer_job_type(tmp_path):
+    """When download_report=True, save_reports=False, job_type=observer: save_reports must remain False.
+
+    Observer (Lighthouse) uploads its HTML via a different mechanism — it does not
+    need save_reports=True. Forcing it True for observer is a behavioral regression.
+    """
+    import types
+
+    args = types.SimpleNamespace(
+        download_report=True,
+        save_reports=False,
+        job_type=["observer"],
+        job_name="LighthouseObserverTest",
+        report_path=str(tmp_path),
+        integrations={},
+        artifact="",
+        concurrency=[1],
+        container=["getcarrier/observer:latest"],
+        channel=["default"],
+        execution_params=[{}],
+        deviation=0,
+        max_deviation=0,
+        test_id="",
+    )
+
+    with mock.patch.object(run, "start_job") as mock_start, \
+         mock.patch.object(run, "track_job", return_value=0), \
+         mock.patch.object(run, "process_lighthouse_report"), \
+         mock.patch.object(run, "send_minio_dump_flag"), \
+         mock.patch.object(run, "test_finished", return_value=True):
+
+        mock_start.return_value = (mock.Mock(), "group_id", {"id": "123"})
+        try:
+            run._start_and_track(args)
+        except Exception:
+            pass
+
+    assert args.save_reports is False, (
+        "save_reports must NOT be forced to True for observer job type when download_report=True "
+        "(observer's Lighthouse HTML does not require save_reports)"
+    )
+
+
+def test_save_reports_IS_overridden_for_perfgun_job_type(tmp_path):
+    """When download_report=True, save_reports=False, job_type=perfgun: save_reports must become True.
+
+    Gatling requires save_reports=True to upload the ZIP that download_gatling_report
+    then retrieves. This override must remain active for perfgun/perfmeter.
+    """
+    import types
+
+    args = types.SimpleNamespace(
+        download_report=True,
+        save_reports=False,
+        job_type=["perfgun"],
+        job_name="GatlingTest",
+        report_path=str(tmp_path),
+        integrations={},
+        artifact="",
+        concurrency=[1],
+        container=["getcarrier/perfgun:latest"],
+        channel=["default"],
+        execution_params=[{}],
+        deviation=0,
+        max_deviation=0,
+        test_id="",
+    )
+
+    with mock.patch.object(run, "start_job") as mock_start, \
+         mock.patch.object(run, "track_job", return_value=0), \
+         mock.patch.object(run, "process_gatling_report"), \
+         mock.patch.object(run, "send_minio_dump_flag"), \
+         mock.patch.object(run, "test_finished", return_value=True):
+
+        mock_start.return_value = (mock.Mock(), "group_id", {"id": "123"})
+        try:
+            run._start_and_track(args)
+        except Exception:
+            pass
+
+    assert args.save_reports is True, (
+        "save_reports must be forced to True for perfgun when download_report=True "
+        "(Gatling ZIP must be uploaded before it can be downloaded)"
+    )
