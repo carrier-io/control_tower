@@ -2,7 +2,7 @@ name: Build and push Docker images
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, feat/download-report ]
   #pull_request:
   #  branches: [ master ]
   workflow_dispatch:
@@ -38,4 +38,4 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           push: true
-          tags: ${{ inputs.docker_tag || 'getcarrier/control_tower:latest' }}
+          tags: ${{ inputs.docker_tag || (github.ref_name == 'master' && 'getcarrier/control_tower:latest' || format('getcarrier/control_tower:{0}', github.ref_name)) }}
