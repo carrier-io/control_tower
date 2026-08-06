@@ -712,12 +712,19 @@ def test_finished(report_id=REPORT_ID):
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
-    res = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()
-    return res["message"].lower() in {
-        "finished", "failed", "success",
-        'canceled', 'cancelled', 'post processing (manual)',
-        'error'
-    }
+    res = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    try:
+        res = res.json()
+        return res["message"].lower() in {
+            "finished", "failed", "success",
+            'canceled', 'cancelled', 'post processing (manual)',
+            'error'
+        }
+    except:
+        logger.error("Failed to get report status")
+        logger.error(res)
+        return False
+
 
 
 def send_minio_dump_flag(result_code: int) -> None:
