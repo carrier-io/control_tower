@@ -562,10 +562,12 @@ def frontend_perf_test_start_notify(args):
         response = requests.post(f"{GALLOPER_URL}/api/v1/ui_performance/reports/{PROJECT_ID}", json=data,
                                  headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
-            logger.info(response.json()["message"])
+            res = response.json()
+            logger.info(res.get("message", ""))
         except:
             logger.info(response.text)
-        return response.json()
+            return {}
+        return res
 
 
 def backend_perf_test_start_notify(args):
@@ -649,8 +651,12 @@ def backend_perf_test_start_notify(args):
             logger.error(response.text)
 
         if response.status_code == requests.codes.forbidden:
-            logger.error(response.json().get('Forbidden'))
-            raise Exception(response.json().get('Forbidden'))
+            try:
+                forbidden_msg = response.json().get('Forbidden')
+            except:
+                forbidden_msg = response.text
+            logger.error(forbidden_msg)
+            raise Exception(forbidden_msg)
 
         # Add tag "control_tower"
         try:
@@ -703,7 +709,12 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
             "max_deviation": max_deviation,
             "u_aggr": U_AGGR
         }
-        return requests.get(url, params=params, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()
+        response = requests.get(url, params=params, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        try:
+            return response.json()
+        except:
+            logger.error("Failed to parse saturation check response")
+            logger.error(response.text)
     return {"message": "Test is in progress", "code": 0}
 
 
