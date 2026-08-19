@@ -63,6 +63,47 @@ else:
     logger = logging.getLogger()
 
 
+# ---------------------------------------------------------------------------
+# Carrier HTTP timeout hardening
+# ---------------------------------------------------------------------------
+_CARRIER_REQUEST_TIMEOUT: int = 120      # seconds per request
+_CARRIER_MAX_CONSECUTIVE_TIMEOUTS: int = 5
+_consecutive_timeout_count: int = 0
+
+
+def _carrier_request(method: str, url: str, **kwargs) -> requests.Response:
+    """Single entry point for all Carrier HTTP calls in run.py.
+
+    Enforces _CARRIER_REQUEST_TIMEOUT as the default timeout,
+    tracks consecutive read timeouts, and stops the process after
+    _CARRIER_MAX_CONSECUTIVE_TIMEOUTS in a row.
+    """
+    global _consecutive_timeout_count
+    kwargs.setdefault("timeout", _CARRIER_REQUEST_TIMEOUT)
+    try:
+        response = requests.request(method, url, **kwargs)
+        _consecutive_timeout_count = 0
+        return response
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError) as exc:
+        _consecutive_timeout_count += 1
+        logger.warning(
+            "Carrier platform appears to be unavailable — will retry shortly. "
+            "(consecutive timeout %d/%d)",
+            _consecutive_timeout_count,
+            _CARRIER_MAX_CONSECUTIVE_TIMEOUTS,
+        )
+        if _consecutive_timeout_count >= _CARRIER_MAX_CONSECUTIVE_TIMEOUTS:
+            logger.critical(
+                f"Carrier platform has not recovered after {_CARRIER_MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts "
+                f"(~{(_CARRIER_MAX_CONSECUTIVE_TIMEOUTS * _CARRIER_REQUEST_TIMEOUT) // 60} minutes). Stopping execution."
+            )
+            raise SystemExit(
+                "Test did not finish — Carrier platform is unresponsive. "
+                "Please try again later or contact the platform admins."
+            ) from exc
+        raise
+
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -130,7 +171,7 @@ def append_test_config(args):
         headers['Authorization'] = f'bearer {TOKEN}'
     url = f"{GALLOPER_URL}/api/v1/shared/job_type/{PROJECT_ID}/{args.test_id}"
     # get job_type
-    test_config = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    test_config = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     try:
         test_config = test_config.json()
     except Exception as exc:
@@ -180,7 +221,7 @@ def append_test_config(args):
             "type": "config"
         }
         # merge params with test config
-        test_config = requests.post(url, json=data, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        test_config = _carrier_request("POST", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
             test_config = test_config.json()
         except Exception as exc:
@@ -442,7 +483,7 @@ def start_job(args=None):
                     # upload artifact
                     url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
                     file_payload = {"file": (f"{BUILD_ID}.zip", src_file)}
-                    requests.post(url, params=s3_settings, headers=headers, files=file_payload, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+                    _carrier_request("POST", url, params=s3_settings, headers=headers, files=file_payload, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
 
         if kubernetes_settings:
             task_kwargs = {
@@ -527,7 +568,7 @@ def update_test_status(status, percentage, description):
                             "description": description}}
     headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
-    response = requests.put(url, json=data, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    response = _carrier_request("PUT", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     try:
         logger.info(response.json()["message"])
     except:
@@ -559,8 +600,8 @@ def frontend_perf_test_start_notify(args):
         if TOKEN:
             headers['Authorization'] = f'bearer {TOKEN}'
 
-        response = requests.post(f"{GALLOPER_URL}/api/v1/ui_performance/reports/{PROJECT_ID}", json=data,
-                                 headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        response = _carrier_request("POST", f"{GALLOPER_URL}/api/v1/ui_performance/reports/{PROJECT_ID}", json=data,
+                                 headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
             res = response.json()
             logger.info(res.get("message", ""))
@@ -637,7 +678,7 @@ def backend_perf_test_start_notify(args):
             headers['Authorization'] = f'bearer {TOKEN}'
         url = f'{GALLOPER_URL}/api/v1/backend_performance/reports/{PROJECT_ID}'
 
-        response = requests.post(url, json=data, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        response = _carrier_request("POST", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         res = {}
         try:
             res = response.json()
@@ -664,7 +705,7 @@ def backend_perf_test_start_notify(args):
             tags_data = {'tags': [{'title': 'ci/cd',
                          'hex': '#5933c6'
                          }]}
-            requests.post(tags_url, json=tags_data, headers=headers, timeout=30,
+            _carrier_request("POST", tags_url, json=tags_data, headers=headers,
                                     verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         except:
             logger.error("Failed to add report tag")
@@ -676,7 +717,7 @@ def get_project_package():
     try:
         url = f"{GALLOPER_URL}/api/v1/projects/project/{PROJECT_ID}"
         headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
-        package = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()["package"]
+        package = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()["package"]
     except:
         package = "custom"
     return package
@@ -709,7 +750,7 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
             "max_deviation": max_deviation,
             "u_aggr": U_AGGR
         }
-        response = requests.get(url, params=params, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        response = _carrier_request("GET", url, params=params, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
             return response.json()
         except:
@@ -723,7 +764,7 @@ def test_finished(report_id=REPORT_ID):
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
-    res = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    res = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     try:
         res = res.json()
         return res["message"].lower() in {
@@ -746,7 +787,7 @@ def send_minio_dump_flag(result_code: int) -> None:
     headers = {'Content-type': 'application/json'}
     if TOKEN:
         headers['Authorization'] = f'bearer {TOKEN}'
-    requests.patch(url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code}, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    _carrier_request("PATCH", url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code}, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
 
 
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
@@ -799,7 +840,7 @@ def test_was_canceled(test_id):
             url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{test_id}'
             headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
             headers["Content-type"] = "application/json"
-            status = requests.get(url, headers=headers, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()['message']
+            status = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()['message']
             return status in {'Cancelled', "Canceled", "post processing (manual)"}
         return False
     except:
@@ -930,7 +971,7 @@ def download_junit_report(s3_settings, results_bucket, file_name, retry):
     else:
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
-    junit_report = requests.get(url, params=s3_settings, headers=headers, allow_redirects=True, timeout=30, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    junit_report = _carrier_request("GET", url, params=s3_settings, headers=headers, allow_redirects=True, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         logger.info("Waiting for report to be accessible ...")
         retry -= 1
@@ -957,8 +998,8 @@ def download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix
     list_url = f'{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/{results_bucket}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     ssl_verify = os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]
-    listing = requests.get(
-        list_url, params=s3_settings, headers=headers, timeout=30, verify=ssl_verify
+    listing = _carrier_request(
+        "GET", list_url, params=s3_settings, headers=headers, verify=ssl_verify
     )
     zip_name = None
     if listing.status_code == 200:
@@ -990,9 +1031,9 @@ def download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix
         sleep(10)
         return download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix, retry)
     dl_url = f'{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/{results_bucket}/{zip_name}'
-    response = requests.get(
-        dl_url, params=s3_settings, headers=headers,
-        allow_redirects=True, timeout=60, verify=ssl_verify
+    response = _carrier_request(
+        "GET", dl_url, params=s3_settings, headers=headers,
+        allow_redirects=True, verify=ssl_verify
     )
     if response.status_code != 200:
         logger.warning(
@@ -1067,8 +1108,8 @@ def download_lighthouse_report(s3_settings, retry=12):
     list_url = f'{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/reports'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     ssl_verify = os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]
-    listing = requests.get(
-        list_url, params=s3_settings, headers=headers, timeout=30, verify=ssl_verify
+    listing = _carrier_request(
+        "GET", list_url, params=s3_settings, headers=headers, verify=ssl_verify
     )
     html_name = None
     if listing.status_code == 200:
@@ -1096,9 +1137,9 @@ def download_lighthouse_report(s3_settings, retry=12):
         sleep(10)
         return download_lighthouse_report(s3_settings, retry)
     dl_url = f'{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/reports/{html_name}'
-    response = requests.get(
-        dl_url, params=s3_settings, headers=headers,
-        allow_redirects=True, timeout=60, verify=ssl_verify
+    response = _carrier_request(
+        "GET", dl_url, params=s3_settings, headers=headers,
+        allow_redirects=True, verify=ssl_verify
     )
     if response.status_code != 200:
         logger.warning(
