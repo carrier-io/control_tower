@@ -104,6 +104,33 @@ def _carrier_request(method: str, url: str, **kwargs) -> requests.Response:
         raise
 
 
+def _carrier_request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
+    """Critical-path wrapper: retries _carrier_request on Timeout up to
+    _CARRIER_MAX_CONSECUTIVE_TIMEOUTS times with a 30-second sleep between
+    attempts, then re-raises.
+
+    On the final attempt the underlying _carrier_request raises SystemExit
+    (not Timeout) once the global consecutive-timeout counter is saturated —
+    that exception is not caught here and propagates naturally.
+    """
+    for attempt in range(1, _CARRIER_MAX_CONSECUTIVE_TIMEOUTS + 1):
+        try:
+            return _carrier_request(method, url, **kwargs)
+        except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError) as exc:
+            if attempt >= _CARRIER_MAX_CONSECUTIVE_TIMEOUTS:
+                logger.error(
+                    "Critical request timed out after %d attempts — giving up.",
+                    _CARRIER_MAX_CONSECUTIVE_TIMEOUTS,
+                )
+                raise
+            logger.warning(
+                "Critical request timed out (attempt %d/%d) — retrying in 30 s ...",
+                attempt,
+                _CARRIER_MAX_CONSECUTIVE_TIMEOUTS,
+            )
+            sleep(30)
+
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -171,7 +198,7 @@ def append_test_config(args):
         headers['Authorization'] = f'bearer {TOKEN}'
     url = f"{GALLOPER_URL}/api/v1/shared/job_type/{PROJECT_ID}/{args.test_id}"
     # get job_type
-    test_config = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    test_config = _carrier_request_with_retry("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     try:
         test_config = test_config.json()
     except Exception as exc:
@@ -221,7 +248,7 @@ def append_test_config(args):
             "type": "config"
         }
         # merge params with test config
-        test_config = _carrier_request("POST", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        test_config = _carrier_request_with_retry("POST", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
             test_config = test_config.json()
         except Exception as exc:
@@ -483,7 +510,13 @@ def start_job(args=None):
                     # upload artifact
                     url = f"{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/sast/"
                     file_payload = {"file": (f"{BUILD_ID}.zip", src_file)}
-                    _carrier_request("POST", url, params=s3_settings, headers=headers, files=file_payload, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+                    try:
+                        _carrier_request("POST", url, params=s3_settings, headers=headers, files=file_payload, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+                    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+                        logger.warning(
+                            "SAST artifact upload timed out — skipping. "
+                            "The scan worker may not have the source code."
+                        )
 
         if kubernetes_settings:
             task_kwargs = {
@@ -568,7 +601,7 @@ def update_test_status(status, percentage, description):
                             "description": description}}
     headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{REPORT_ID}'
-    response = _carrier_request("PUT", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    response = _carrier_request_with_retry("PUT", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
     try:
         logger.info(response.json()["message"])
     except:
@@ -600,7 +633,7 @@ def frontend_perf_test_start_notify(args):
         if TOKEN:
             headers['Authorization'] = f'bearer {TOKEN}'
 
-        response = _carrier_request("POST", f"{GALLOPER_URL}/api/v1/ui_performance/reports/{PROJECT_ID}", json=data,
+        response = _carrier_request_with_retry("POST", f"{GALLOPER_URL}/api/v1/ui_performance/reports/{PROJECT_ID}", json=data,
                                  headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         try:
             res = response.json()
@@ -678,7 +711,7 @@ def backend_perf_test_start_notify(args):
             headers['Authorization'] = f'bearer {TOKEN}'
         url = f'{GALLOPER_URL}/api/v1/backend_performance/reports/{PROJECT_ID}'
 
-        response = _carrier_request("POST", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        response = _carrier_request_with_retry("POST", url, json=data, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
         res = {}
         try:
             res = response.json()
@@ -707,7 +740,7 @@ def backend_perf_test_start_notify(args):
                          }]}
             _carrier_request("POST", tags_url, json=tags_data, headers=headers,
                                     verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
-        except:
+        except Exception:
             logger.error("Failed to add report tag")
         return res
     return {}
@@ -718,7 +751,7 @@ def get_project_package():
         url = f"{GALLOPER_URL}/api/v1/projects/project/{PROJECT_ID}"
         headers = {'content-type': 'application/json', 'Authorization': f'bearer {TOKEN}'}
         package = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()["package"]
-    except:
+    except Exception:
         package = "custom"
     return package
 
@@ -750,7 +783,11 @@ def check_test_is_saturating(test_id=None, deviation=0.02, max_deviation=0.05):
             "max_deviation": max_deviation,
             "u_aggr": U_AGGR
         }
-        response = _carrier_request("GET", url, params=params, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        try:
+            response = _carrier_request("GET", url, params=params, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+        except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+            logger.warning("Saturation check timed out — assuming test is in progress.")
+            return {"message": "Test is in progress", "code": 0}
         try:
             return response.json()
         except:
@@ -764,7 +801,11 @@ def test_finished(report_id=REPORT_ID):
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     headers["Content-type"] = "application/json"
     url = f'{GALLOPER_URL}/api/v1/{module}/report_status/{PROJECT_ID}/{report_id}'
-    res = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    try:
+        res = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+        logger.warning("Report status check timed out — assuming test is still running.")
+        return False
     try:
         res = res.json()
         return res["message"].lower() in {
@@ -787,7 +828,13 @@ def send_minio_dump_flag(result_code: int) -> None:
     headers = {'Content-type': 'application/json'}
     if TOKEN:
         headers['Authorization'] = f'bearer {TOKEN}'
-    _carrier_request("PATCH", url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code}, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    try:
+        _carrier_request("PATCH", url, headers=headers, json={'build_id': BUILD_ID, 'result_code': result_code}, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+        logger.warning(
+            "Log-dump PATCH to Carrier timed out — Carrier platform may be unavailable. "
+            "Logs for this run may be missing in Carrier."
+        )
 
 
 def track_job(bitter, group_id, test_id=None, deviation=0.02, max_deviation=0.05):
@@ -843,7 +890,7 @@ def test_was_canceled(test_id):
             status = _carrier_request("GET", url, headers=headers, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]).json()['message']
             return status in {'Cancelled', "Canceled", "post processing (manual)"}
         return False
-    except:
+    except Exception:
         return False
 
 
@@ -971,7 +1018,15 @@ def download_junit_report(s3_settings, results_bucket, file_name, retry):
     else:
         url = f'{GALLOPER_URL}/artifacts/{results_bucket}/{file_name}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
-    junit_report = _carrier_request("GET", url, params=s3_settings, headers=headers, allow_redirects=True, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    try:
+        junit_report = _carrier_request("GET", url, params=s3_settings, headers=headers, allow_redirects=True, verify=os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"])
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+        logger.info("JUnit report download timed out — retrying ...")
+        retry -= 1
+        if retry == 0:
+            return None
+        sleep(10)
+        return download_junit_report(s3_settings, results_bucket, file_name, retry)
     if junit_report.status_code != 200 or 'botocore.errorfactory.NoSuchKey' in junit_report.text:
         logger.info("Waiting for report to be accessible ...")
         retry -= 1
@@ -998,9 +1053,21 @@ def download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix
     list_url = f'{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/{results_bucket}'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     ssl_verify = os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]
-    listing = _carrier_request(
-        "GET", list_url, params=s3_settings, headers=headers, verify=ssl_verify
-    )
+    try:
+        listing = _carrier_request(
+            "GET", list_url, params=s3_settings, headers=headers, verify=ssl_verify
+        )
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+        logger.info("Gatling artifact listing timed out — retrying ...")
+        retry -= 1
+        if retry == 0:
+            logger.warning(
+                "download_gatling_report: listing timed out for bucket '%s' after all retries.",
+                results_bucket,
+            )
+            return None
+        sleep(10)
+        return download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix, retry)
     zip_name = None
     if listing.status_code == 200:
         try:
@@ -1031,10 +1098,17 @@ def download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix
         sleep(10)
         return download_gatling_report(s3_settings, results_bucket, distributed_mode_prefix, retry)
     dl_url = f'{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/{results_bucket}/{zip_name}'
-    response = _carrier_request(
-        "GET", dl_url, params=s3_settings, headers=headers,
-        allow_redirects=True, verify=ssl_verify
-    )
+    try:
+        response = _carrier_request(
+            "GET", dl_url, params=s3_settings, headers=headers,
+            allow_redirects=True, verify=ssl_verify
+        )
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+        logger.warning(
+            "download_gatling_report: download of '%s' timed out.",
+            zip_name,
+        )
+        return None
     if response.status_code != 200:
         logger.warning(
             "download_gatling_report: download of '%s' returned HTTP %s.",
@@ -1108,9 +1182,20 @@ def download_lighthouse_report(s3_settings, retry=12):
     list_url = f'{GALLOPER_URL}/api/v1/artifacts/artifacts/{PROJECT_ID}/reports'
     headers = {'Authorization': f'bearer {TOKEN}'} if TOKEN else {}
     ssl_verify = os.environ.get("SSL_VERIFY", "").lower() in ["yes", "true"]
-    listing = _carrier_request(
-        "GET", list_url, params=s3_settings, headers=headers, verify=ssl_verify
-    )
+    try:
+        listing = _carrier_request(
+            "GET", list_url, params=s3_settings, headers=headers, verify=ssl_verify
+        )
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+        logger.info("Lighthouse report listing timed out — retrying ...")
+        retry -= 1
+        if retry == 0:
+            logger.warning(
+                "download_lighthouse_report: listing timed out for bucket 'reports' after all retries."
+            )
+            return None, None
+        sleep(10)
+        return download_lighthouse_report(s3_settings, retry)
     html_name = None
     if listing.status_code == 200:
         try:
@@ -1137,10 +1222,17 @@ def download_lighthouse_report(s3_settings, retry=12):
         sleep(10)
         return download_lighthouse_report(s3_settings, retry)
     dl_url = f'{GALLOPER_URL}/api/v1/artifacts/artifact/{PROJECT_ID}/reports/{html_name}'
-    response = _carrier_request(
-        "GET", dl_url, params=s3_settings, headers=headers,
-        allow_redirects=True, verify=ssl_verify
-    )
+    try:
+        response = _carrier_request(
+            "GET", dl_url, params=s3_settings, headers=headers,
+            allow_redirects=True, verify=ssl_verify
+        )
+    except (requests.exceptions.Timeout, urllib3.exceptions.ReadTimeoutError):
+        logger.warning(
+            "download_lighthouse_report: download of '%s' timed out.",
+            html_name,
+        )
+        return None, None
     if response.status_code != 200:
         logger.warning(
             "download_lighthouse_report: download of '%s' returned HTTP %s.",
