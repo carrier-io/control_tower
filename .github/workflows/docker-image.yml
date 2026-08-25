@@ -2,7 +2,7 @@ name: Build and push Docker images
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, feat/download-report ]
   #pull_request:
   #  branches: [ master ]
   workflow_dispatch:
@@ -34,8 +34,18 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Set image tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            echo "value=getcarrier/control_tower:latest" >> $GITHUB_OUTPUT
+          else
+            SAFE=$(echo "${{ github.ref_name }}" | tr '/' '-')
+            echo "value=getcarrier/control_tower:${SAFE}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
           push: true
-          tags: ${{ inputs.docker_tag || 'getcarrier/control_tower:latest' }}
+          tags: ${{ inputs.docker_tag || steps.tag.outputs.value }}

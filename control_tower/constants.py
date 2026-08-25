@@ -95,3 +95,5 @@ ENV_VARS_MAPPING = {
 }
 
 CONTAINER_TAG = 'latest'
+
+DOWNLOAD_REPORT = environ.get("DOWNLOAD_REPORT", "").lower() in ("true", "yes", "1", "t")
